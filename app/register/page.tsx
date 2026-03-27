@@ -6,6 +6,8 @@ import { User } from "@/types/user";
 import { Button, Form, Input } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
 import { GraduationCap, Presentation } from "lucide-react";
+import { Suspense } from "react";
+
 
 // Optionally, you can import a CSS module or file for additional styling:
 // import styles from "@/styles/page.module.css";
@@ -141,4 +143,11 @@ const Register: React.FC = () => {
   );
 };
 
-export default Register;
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <Register />
+    </Suspense>
+  );
+}
+
