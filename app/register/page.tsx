@@ -38,7 +38,10 @@ const Register: React.FC = () => {
     try {
       // Call the API service and let it handle JSON serialization and error handling
       const response = await apiService.post<User>("/users", {
-        ...values,
+        username: values.username,
+        firstName: values.firstName,
+        lastName: values.lastName,
+        password: values.password,
         role: role.toUpperCase(),
       });
 
@@ -53,14 +56,14 @@ const Register: React.FC = () => {
 
 
       if (role === "teacher") {
-        router.push("/dashboard");
+        router.push("/teacher-dashboard");
       } else {
-        router.push("/join");
+        router.push("/student-dashboard");
       }
 
     } catch (error) {
           if (error instanceof Error) {
-            if (error.message.includes("409")) {
+            if (error.message.includes("409") || error.message.includes("400")) {
               form.setFields([
                 {
                   name: "username",
