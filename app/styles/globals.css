@@ -457,3 +457,7 @@ a {
 .student-form .ant-btn-primary:hover {
   background: rgba(91, 108, 255, 0.35) !important;
 }
+
+background-image: url("/bg.jpg");
+background-size: cover;
+background-position: center;
