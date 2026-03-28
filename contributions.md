@@ -34,8 +34,8 @@ reason).
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
-| **[@MoritzDav]** | [28.03]   | [https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/86c8e5d6a62757927697451a071c45ab29b5eedf] | [Added login page] | [Needed for the website otherwise not usable] |
-|                    | [28.03]   | [https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/e0d6bd11e55351233c2c0ccff296c588b7c38e3b] | [Added AuthGuard] | [So only logged in users can join courses] |
+| **[@MoritzDav]** | [28.03]   | [https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/86c8e] | [Added login page] | [Needed for the website otherwise not usable] |
+|                    | [28.03]   | [https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/e0d6b] | [Added AuthGuard] | [So only logged in users can join courses] |
 | **[@githubUser2]** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@githubUser3]** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
