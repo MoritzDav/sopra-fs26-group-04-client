@@ -710,3 +710,7 @@ a {
   background: rgba(91, 108, 255, 0.20) !important;
   transform: translateY(-1px);
 }
+
+background-image: url("/bg.jpg");
+background-size: cover;
+background-position: center;

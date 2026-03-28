@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { GraduationCap, Presentation } from "lucide-react";
 import { Suspense } from "react";
 
+
 // Optionally, you can import a CSS module or file for additional styling:
 // import styles from "@/styles/page.module.css";
 
@@ -136,10 +137,11 @@ const RegisterForm: React.FC = () => {
   );
 };
 
-const Register: React.FC = () => (
-  <Suspense>
-    <RegisterForm />
-  </Suspense>
-);
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <Register />
+    </Suspense>
+  );
+}
 
-export default Register;
