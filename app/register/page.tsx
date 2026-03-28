@@ -19,7 +19,7 @@ interface RegisterFormFields {
   lastName: string;
 }
 
-const RegisterForm: React.FC = () => {
+const Register: React.FC = () => {
   const router = useRouter();
   const apiService = useApi();
   const [form] = Form.useForm();
