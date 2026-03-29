@@ -36,8 +36,8 @@ reason).
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
 | **[@MoritzDav](https://github.com/MoritzDav)** | [28.03]   | [86c8e5d](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/86c8e5d) | [Added login page] | [Needed for the website otherwise not usable] |
 |                    | [28.03]   | [e0d6bd1](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/e0d6bd1) | [Added AuthGuard] | [So only logged in users can join courses] |
-| **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@AQuant1](https://github.com/AQuant1)** | [26.03] | [1a6fe87](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/1a6fe87179926dbdd86ab7e9b51a7935e1ee393e) | Added welcome page | sets the entry point of the web app |
+|                    | [26.03] | [9da325f](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/9da325fc7c829d675a9de9485bee665de35d68ee) | Added Registration of both Student and Teacher | Allows the user to sing up |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
