@@ -42,8 +42,8 @@ reason).
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [29.03]   | [05e7c25] (https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/05e7c258cc70dc71003993deccc75c742efc8fb7) | [Add QR code generation] | [Part of the user story 3] |
+|                    | [29.03]   | [05e7c25](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/05e7c258cc70dc71003993deccc75c742efc8fb7) | [Added unique course code generation] | [Part of the user story 3] |
 
 
 ---
