@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import useLocalStorage from "@/hooks/useLocalStorage";
 import { useApi } from "@/hooks/useApi";
-import { message, Button, Card } from "antd"
+import { message, Button, Card, App } from "antd"
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined } from "@ant-design/icons";
 
 const courses = [
@@ -32,6 +32,7 @@ const courses = [
   const router = useRouter();
   const apiService = useApi();
   const params = useParams();
+  const { message } = App.useApp()
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -90,8 +91,8 @@ const courses = [
       </nav>
 
       {/* Content */}
-      <div style={{ padding: "24px", width: "100%" }}>
-        <h2 style={{ color: "gray", marginBottom: "24px" }}>My Courses</h2>
+      <div style={{ padding: "24px", width: "100%", position: "relative", zIndex: 1 }}>
+        <h2 style={{ color: "#1A1A2E", marginBottom: "24px", position: "relative", zIndex: 1 }}>My Courses</h2>
 
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
 
@@ -116,10 +117,12 @@ const courses = [
 
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
-              <p style={{ color: "rgba(255,255,255,0.7)", margin: "4px 0" }}>
+              <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
                 {course.students} students • {course.sessions} sessions
+                </span>
               </p>
-              <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
                 Code: {course.code}
               </span>
 
