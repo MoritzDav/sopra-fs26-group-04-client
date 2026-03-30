@@ -29,6 +29,9 @@ const Register: React.FC = () => {
   const { set: setId } = useLocalStorage<string>("userId", "");
   const searchParams = useSearchParams();
   const role = searchParams.get("role") || "student";
+  const {
+    set: setRole,
+  } = useLocalStorage<string>("role", "");
 
   const handleRegister = async (values: RegisterFormFields) => {
     try {
@@ -49,12 +52,15 @@ const Register: React.FC = () => {
       if (response.id) {
         setId(response.id);
       }
+      if (response.role) {
+        setRole(response.role);
+      }
 
 
       if (role === "teacher") {
-        router.push("/teacher-dashboard");
+        router.push(`/teacher-dashboard/${response.id}`);
       } else {
-        router.push("/student-dashboard");
+        router.push(`/student-dashboard/${response.id}`);
       }
 
     } catch (error) {
