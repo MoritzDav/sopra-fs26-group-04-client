@@ -1,11 +1,11 @@
 "use client"; //needed for useState, useEffect
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import useLocalStorage from "@/hooks/useLocalStorage";
 import { useApi } from "@/hooks/useApi";
 import { message, Button, Card, App } from "antd"
-import { PlusOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
 
 const courses = [
   {
@@ -38,9 +38,12 @@ const courses = [
   const router = useRouter();
   const apiService = useApi();
   const params = useParams();
-  const { message } = App.useApp()
+  const { message } = App.useApp();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
 
   useEffect(() => {
+   const fetchData = async () => {
     const token = localStorage.getItem("token");
     if (!token || token === '""') { //if user not logged in
       router.push("/login");
@@ -54,6 +57,10 @@ const courses = [
         router.push("/login")
         return
     }
+
+    const user = await apiService.get(`/users/${id}`); //get first and last name of student, endpoint fehlt aber noch in BackEnd
+    setFirstName(user.firstName);
+    setLastName(user.lastName);
 
     //if id doesnt fit URL --> redirect
     if (id !== urlId) {
@@ -74,6 +81,8 @@ const courses = [
         router.push(`/teacher-dashboard/${id}`)
         return
         }
+    }
+    fetchData();
   }, [router]);
 
   return (
@@ -92,7 +101,7 @@ const courses = [
           📚 Virtual Classroom
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <Button type="primary" icon={<PlusOutlined />}>Join Course</Button>
+          <Button type="primary" onClick={() => router.push("/joinCourse")} icon={<PlusOutlined />}>Join Course</Button>
           <div style={{
             background: "var(--primary-glass)",
             color: "var(--primary)",
@@ -103,7 +112,7 @@ const courses = [
             alignItems: "center",
             justifyContent: "center",
             fontWeight: 600
-          }}>JS</div>
+          }}>{firstName.charAt(0)}{lastName.charAt(0)}</div>
         </div>
       </nav>
 
@@ -113,7 +122,7 @@ const courses = [
 
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           {courses.map(course => (
-            <Card key={course.id} style={{ width: 280, cursor: "pointer" }}>
+            <Card key={course.id} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/student-dashboard/courses/${course.id}`)}>
               {/* Course Image */}
               <div style={{
                 background: course.gradient,
