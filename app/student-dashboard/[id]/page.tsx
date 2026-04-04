@@ -7,9 +7,20 @@ import { useApi } from "@/hooks/useApi";
 import { message, Button, Card, App } from "antd"
 import { PlusOutlined } from "@ant-design/icons";
 
+interface Course {
+    courseId: number;
+    }
+
+interface User {
+    id: number;
+    firstName: string;
+    lastName: string;
+    role: string;
+    }
+
 const courses = [
   {
-    id: 1,
+    courseId: 1,
     title: "Computer Science 101",
     abbreviation: "CS",
     professor: "Prof. Smith",
@@ -17,7 +28,7 @@ const courses = [
     gradient: "linear-gradient(135deg, #667eea, #764ba2)",
   },
   {
-    id: 2,
+    courseId: 2,
     title: "Mathematics II",
     abbreviation: "MA",
     professor: "Prof. Johnson",
@@ -38,29 +49,32 @@ const courses = [
   const router = useRouter();
   const apiService = useApi();
   const params = useParams();
+  const urlId = params.id;
   const { message } = App.useApp();
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [user, setUser] = useState({ firstName: "", lastName: "", Id: "", role: "" });
+  //const [courses, setCourses] = useState<Course[]>([]);
 
   useEffect(() => {
+   try {
    const fetchData = async () => {
+    const id = localStorage.getItem("userId");
     const token = localStorage.getItem("token");
     if (!token || token === '""') { //if user not logged in
       router.push("/login");
       return
     }
-    const urlId = params.id
-    const id = localStorage.getItem("userId");
-    const role = localStorage.getItem("role")?.replace(/"/g, "") //because role gets stored with ""
+    const userData = await apiService.get<User>(`/users/${id}`);
+    const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
+    const firstName = userData.firstName;
+    const lastName = userData.lastName;
+    const userDataId = userData.id;
+    setUser({ firstName, lastName, userDataId, role});
 
     if (!id || !role || !urlId) { //if any variable empty
         router.push("/login")
         return
     }
 
-    const user = await apiService.get(`/users/${id}`); //get first and last name of student, endpoint fehlt aber noch in BackEnd
-    setFirstName(user.firstName);
-    setLastName(user.lastName);
 
     //if id doesnt fit URL --> redirect
     if (id !== urlId) {
@@ -83,6 +97,11 @@ const courses = [
         }
     }
     fetchData();
+    } catch (error) {
+        if (error instanceof Error) {
+            alert(`Something went wrong:\n${error.message}`);
+            }
+        }
   }, [router]);
 
   return (
@@ -102,7 +121,7 @@ const courses = [
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <Button type="primary" onClick={() => router.push("/joinCourse")} icon={<PlusOutlined />}>Join Course</Button>
-          <div style={{
+        <div style={{
             background: "var(--primary-glass)",
             color: "var(--primary)",
             borderRadius: "50%",
@@ -111,8 +130,11 @@ const courses = [
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontWeight: 600
-          }}>{firstName.charAt(0)}{lastName.charAt(0)}</div>
+            fontWeight: 600,
+            cursor: "pointer"
+        }} onClick={() => router.push(`/users/${urlId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
+        {user.firstName.charAt(0)}{user.lastName.charAt(0)} {/*geht erst wenn daten aus backend gefetcht werden können*/}
+        </div>
         </div>
       </nav>
 
@@ -122,7 +144,7 @@ const courses = [
 
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           {courses.map(course => (
-            <Card key={course.id} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/student-dashboard/courses/${course.id}`)}>
+            <Card key={course.id} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
               {/* Course Image */}
               <div style={{
                 background: course.gradient,
