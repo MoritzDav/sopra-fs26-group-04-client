@@ -76,6 +76,7 @@ const courses = [
         <div style={{ color: "var(--text)", fontSize: "18px", fontWeight: 600 }}>📚 Virtual Classroom</div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <Button type="primary" icon={<PlusOutlined />}>Create Course</Button>
+          <Button danger>Logout</Button>
           <div style={{
             background: "var(--primary-glass)",
             color: "var(--primary)",

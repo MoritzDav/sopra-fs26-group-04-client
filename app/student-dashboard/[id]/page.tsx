@@ -121,6 +121,7 @@ const courses = [
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <Button type="primary" onClick={() => router.push("/joinCourse")} icon={<PlusOutlined />}>Join Course</Button>
+          <Button danger>Logout</Button>
         <div style={{
             background: "var(--primary-glass)",
             color: "var(--primary)",
