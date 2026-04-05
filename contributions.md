@@ -58,14 +58,14 @@ reason).
 |                    | [05.04] | [d4f84db](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/d4f84db22544e88016ae582c7c483fd3a464d1e9) | Added join course page | Students need to join courses via course code |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@Meimira](https://github.com/Meimira)** | [05.04]   | [205740c(https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/205740ce8e78230ba7bcc0d2d8a3e1f021bc8fe8)] | [Both dashboards (student and teacher) are now dynamic, meaning they only see their own courses they are enrolled in. Additionally the profil icon are now individual.] | [Users must see their own courses and no one elses.] |
+|                    | [05.04]   | [205740c(https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/205740ce8e78230ba7bcc0d2d8a3e1f021bc8fe8)] | [Both dashboard have now links to the course page and the profile page. Additionally a teacher can now navigate to editCourse, delete his course and share the course code with the display of a QR Code] | [Users must be able to navigate to course page and their profile. A teacher must be able to delete and share his course.] |
 | **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [05.04]   | [c3d90aa](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/c3d90aafff9da0d7ae5af6e343b4430bfa92fd37) | Add course email generation and user retrieval functionality | Outlook message is part of the user story |
 |                    | [05.04]   | [afba6b3](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/afba6b391334502362d0dff2ffeea3fdc2af87b8) | Implement user login and logout functionality+unit tests | essential for the app |
 
 ---
 
-## Contributions Week 3 - [Begin Date] to [End Date]
+## Contributions Week 3 - [Begin date] to [End date]
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
