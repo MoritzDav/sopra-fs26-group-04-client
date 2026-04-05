@@ -9,6 +9,10 @@ import { PlusOutlined } from "@ant-design/icons";
 
 interface Course {
     courseId: number;
+    title: string;
+    description: string;
+    courseCode: number;
+    teacher: string;
     }
 
 interface User {
@@ -18,7 +22,7 @@ interface User {
     role: string;
     }
 
-const courses = [
+{/*const courses = [
   {
     courseId: 1,
     title: "Computer Science 101",
@@ -36,14 +40,14 @@ const courses = [
     gradient: "linear-gradient(135deg, #f093fb, #f5576c)",
   },
   {
-    id: 3,
+    CourseId: 3,
     title: "Physics Lab",
     abbreviation: "PH",
     professor: "Prof. Williams",
     code: "PHY456",
     gradient: "linear-gradient(135deg, #4facfe, #00f2fe)",
   },
-];
+]; */}
 
  export default function StudentDashboard() {
   const router = useRouter();
@@ -52,7 +56,15 @@ const courses = [
   const urlId = params.id;
   const { message } = App.useApp();
   const [user, setUser] = useState({ firstName: "", lastName: "", Id: "", role: "" });
-  //const [courses, setCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+
+  const gradients = [
+    "linear-gradient(135deg, #667eea, #764ba2)",
+    "linear-gradient(135deg, #f093fb, #f5576c)",
+    "linear-gradient(135deg, #4facfe, #00f2fe)",
+    "linear-gradient(135deg, #43e97b, #38f9d7)",
+    "linear-gradient(135deg, #fa709a, #fee140)",
+  ];
 
   useEffect(() => {
    try {
@@ -63,6 +75,14 @@ const courses = [
       router.push("/login");
       return
     }
+
+    //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`); //should get you a list of all courses with information, the student with id is enrolled in
+    //setCourse(courseData);
+    setCourses([ //weil noch kein endpoint dafür im backend
+      { courseId: 1, title: "Computer Science 101", description: "Intro to CS", courseCode: 123, teacher: "Prof. Smith" },
+      { courseId: 2, title: "Mathematics II", description: "Advanced Math", courseCode: 456, teacher: "Prof. Johnson" },
+    ]);
+
     const userData = await apiService.get<User>(`/users/${id}`);
     const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
     const firstName = userData.firstName;
@@ -144,10 +164,10 @@ const courses = [
 
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           {courses.map(course => (
-            <Card key={course.id} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
+            <Card key={course.courseId} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
               {/* Course Image */}
               <div style={{
-                background: course.gradient,
+                background: gradients[course.courseId % gradients.length],
                 borderRadius: "8px",
                 height: "80px",
                 display: "flex",
@@ -158,16 +178,15 @@ const courses = [
                 color: "white",
                 marginBottom: "12px"
               }}>
-                {course.abbreviation}
+                {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
               </div>
-
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
               <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>
-                {course.professor}
+                {course.teacher}
               </p>
               <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
-                Code: {course.code}
+                Code: {course.courseCode}
               </span>
             </Card>
           ))}
