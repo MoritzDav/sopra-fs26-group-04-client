@@ -63,12 +63,16 @@ const courses = [
       router.push("/login");
       return
     }
-    const userData = await apiService.get<User>(`/users/${id}`);
-    const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
-    const firstName = userData.firstName;
-    const lastName = userData.lastName;
-    const userDataId = userData.id;
-    setUser({ firstName, lastName, userDataId, role});
+    // const userData = await apiService.get<User>(`/users/${id}`);
+    // const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
+    // const firstName = userData.firstName;
+    //const lastName = userData.lastName;
+    //const userDataId = userData.id;
+    //setUser({ firstName, lastName, userDataId, role});
+       const role = localStorage.getItem("role")?.replace(/"/g, "") || "";
+       const firstName = localStorage.getItem("firstName")?.replace(/"/g, "") || "";
+       const lastName = localStorage.getItem("lastName")?.replace(/"/g, "") || "";
+       setUser({ firstName, lastName, Id: id || "", role });
 
     if (!id || !role || !urlId) { //if any variable empty
         router.push("/login")

@@ -76,17 +76,19 @@ const courses = [
         <div style={{ color: "var(--text)", fontSize: "18px", fontWeight: 600 }}>📚 Virtual Classroom</div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <Button type="primary" icon={<PlusOutlined />}>Create Course</Button>
-          <div style={{
-            background: "var(--primary-glass)",
-            color: "var(--primary)",
-            borderRadius: "50%",
-            width: 36,
-            height: 36,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 600
-          }}>TS</div>
+            <div style={{
+                background: "var(--primary-glass)",
+                color: "var(--primary)",
+                borderRadius: "50%",
+                width: 36,
+                height: 36,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.2s"
+            }} className="profile-icon" onClick={() => router.push(`/users/${params.id}`)}>TS</div>
         </div>
       </nav>
 

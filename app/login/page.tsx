@@ -22,6 +22,11 @@ const Login: React.FC = () => {
   const { set: setToken } = useLocalStorage<string>("token", "");
   const { set: setId } = useLocalStorage<string>("userId", "");
 
+  const { set: setStoredRole } = useLocalStorage<string>("role", "");
+  const { set: setFirstName } = useLocalStorage<string>("firstName", "");
+  const { set: setLastName } = useLocalStorage<string>("lastName", "");
+  const { set: setUsername } = useLocalStorage<string>("username", "");
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -33,6 +38,11 @@ const Login: React.FC = () => {
 
       if (response.token) setToken(response.token);
       if (response.id) setId(response.id);
+      if (response.role) setStoredRole(response.role);
+      if (response.firstName) setFirstName(response.firstName);
+      if (response.lastName) setLastName(response.lastName);
+      if (response.username) setUsername(response.username);
+
 
       router.push(role === "teacher" ? "/teacher-dashboard" : "/student-dashboard");
     } catch (err) {

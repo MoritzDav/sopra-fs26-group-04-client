@@ -9,15 +9,215 @@
 // Read more here: https://nextjs.org/docs/pages/building-your-application/rendering/server-side-rendering
 
 import React from "react";
+import { useParams, useRouter } from "next/navigation";
+import useLocalStorage from "@/hooks/useLocalStorage";
+import { User, Pencil, X, Check, Lock, ArrowLeft } from "lucide-react";
+import { useState } from "react";
+import { useApi } from "@/hooks/useApi";
+
 
 const Profile: React.FC = () => {
-  return (
-    <div className="card-container">
-      <p>
-        <strong>SampleUser</strong>
-      </p>
-    </div>
-  );
+    const router = useRouter();
+    const params = useParams();
+    const id = params.id;
+    const apiService = useApi();
+
+    const { value: userId } = useLocalStorage<string>("userId", "");
+    const { value: token } = useLocalStorage<string>("token", "");
+    const { value: firstName } = useLocalStorage<string>("firstName", "");
+    const { value: lastName } = useLocalStorage<string>("lastName", "");
+    const { value: username } = useLocalStorage<string>("username", "");
+    const { value: role } = useLocalStorage<string>("role", "");
+
+    const isOwnProfile = String(id) === String(userId);
+
+    // Edit states for each field
+    const [editingField, setEditingField] = useState<string | null>(null);
+    const [editValues, setEditValues] = useState({
+        firstName: "",
+        lastName: "",
+        username: "",
+    });
+
+    // Password change state
+    const [showPasswordChange, setShowPasswordChange] = useState(false);
+    const [passwordValues, setPasswordValues] = useState({
+        oldPassword: "",
+        newPassword: "",
+    });
+    const [error, setError] = useState<string>("");
+    const [success, setSuccess] = useState<string>("");
+
+    const startEditing = (field: string, currentValue: string) => {
+        setEditingField(field);
+        setEditValues({ ...editValues, [field]: currentValue });
+        setError("");
+        setSuccess("");
+    };
+
+    const cancelEditing = () => {
+        setEditingField(null);
+        setError("");
+    };
+
+    const saveField = async (field: string) => {
+        try {
+            await apiService.put(`/users/${id}`, {
+                [field]: editValues[field as keyof typeof editValues],
+            });
+            setSuccess(`${field} updated successfully!`);
+            setEditingField(null);
+            // TODO: update localStorage or use provider in the future
+        } catch (err) {
+            if (err instanceof Error) {
+                setError(err.message);
+            }
+        }
+    };
+
+    const handlePasswordChange = async () => {
+        setError("");
+        if (!passwordValues.oldPassword || !passwordValues.newPassword) {
+            setError("Both fields are required.");
+            return;
+        }
+        try {
+            await apiService.put(`/users/${id}`, {
+                oldPassword: passwordValues.oldPassword,
+                newPassword: passwordValues.newPassword,
+            });
+            // Clear localStorage and redirect to login after password change
+            localStorage.clear();
+            router.push("/login");
+        } catch (err) {
+            if (err instanceof Error) {
+                setError(err.message);
+            }
+        }
+    };
+
+    const renderField = (label: string, field: string, value: string) => {
+        const isEditing = editingField === field;
+        return (
+            <div className="profile-field">
+                <label>{label}</label>
+                <div className="profile-field-row">
+                    {isEditing ? (
+                        <>
+                            <input
+                                className="profile-edit-input"
+                                value={editValues[field as keyof typeof editValues]}
+                                onChange={(e) =>
+                                    setEditValues({ ...editValues, [field]: e.target.value })
+                                }
+                            />
+                            <button className="profile-icon-btn save" onClick={() => saveField(field)}>
+                                <Check size={16} />
+                            </button>
+                            <button className="profile-icon-btn cancel" onClick={cancelEditing}>
+                                <X size={16} />
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <span className="profile-field-value">{value || "—"}</span>
+                            {isOwnProfile && (
+                                <button className="profile-icon-btn edit" onClick={() => startEditing(field, value || "")}>
+                                    <Pencil size={14} />
+                                </button>
+                            )}
+                        </>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="login-container">
+            <div className="profile-card">
+                <button className="profile-back-btn" onClick={() => router.back()}>
+                    <ArrowLeft size={14} /> Back
+                </button>
+                <div className="profile-avatar">
+                    <User size={40} />
+                </div>
+                <h2>{firstName} {lastName}</h2>
+                <div className={`role-badge ${role?.toLowerCase()}`}>
+                    {role}
+                </div>
+
+                <div className="profile-fields">
+                    {renderField("First Name", "firstName", firstName)}
+                    {renderField("Last Name", "lastName", lastName)}
+                    {renderField("Username", "username", username)}
+                </div>
+
+                {error && <div className="profile-error">{error}</div>}
+                {success && <div className="profile-success">{success}</div>}
+
+                {isOwnProfile && (
+                    <div className="profile-password-section">
+                        {!showPasswordChange ? (
+                            <button
+                                className="profile-password-btn"
+                                onClick={() => {
+                                    setShowPasswordChange(true);
+                                    setError("");
+                                    setSuccess("");
+                                }}
+                            >
+                                <Lock size={14} /> Change Password
+                            </button>
+                        ) : (
+                            <div className="profile-password-form">
+                                <h3>Change Password</h3>
+                                <div className="profile-field">
+                                    <label>Current Password</label>
+                                    <input
+                                        className="profile-edit-input"
+                                        type="password"
+                                        placeholder="Enter current password"
+                                        value={passwordValues.oldPassword}
+                                        onChange={(e) =>
+                                            setPasswordValues({ ...passwordValues, oldPassword: e.target.value })
+                                        }
+                                    />
+                                </div>
+                                <div className="profile-field">
+                                    <label>New Password</label>
+                                    <input
+                                        className="profile-edit-input"
+                                        type="password"
+                                        placeholder="Enter new password"
+                                        value={passwordValues.newPassword}
+                                        onChange={(e) =>
+                                            setPasswordValues({ ...passwordValues, newPassword: e.target.value })
+                                        }
+                                    />
+                                </div>
+                                <div className="profile-password-actions">
+                                    <button className="profile-save-btn" onClick={handlePasswordChange}>
+                                        Save Password
+                                    </button>
+                                    <button
+                                        className="profile-cancel-btn"
+                                        onClick={() => {
+                                            setShowPasswordChange(false);
+                                            setPasswordValues({ oldPassword: "", newPassword: "" });
+                                            setError("");
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 };
 
 export default Profile;
