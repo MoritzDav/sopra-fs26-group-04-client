@@ -60,8 +60,8 @@ reason).
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [05.04]   | [c3d90aa](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/c3d90aafff9da0d7ae5af6e343b4430bfa92fd37) | Add course email generation and user retrieval functionality | Outlook message is part of the user story |
+|                    | [05.04]   | [afba6b3](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/afba6b391334502362d0dff2ffeea3fdc2af87b8) | Implement user login and logout functionality+unit tests | essential for the app |
 
 ---
 
