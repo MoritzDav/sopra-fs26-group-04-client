@@ -54,8 +54,8 @@ reason).
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
 | **[@MoritzDav](https://github.com/MoritzDav)** | [05.04]   | [ef01221](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/ef01221) | added a logout button | So users can logout when finished with a session |
 |                    | [05.04]   | [0b15d32](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/0b15d32) | Clearing local storage and redirecting after logout | That the logout works as intended |
-| **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@AQuant1](https://github.com/AQuant1)** | [05.04] | [ba64841](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/ba648411bd990cedc830ae348592627886ac6cfe) | Added profile page and password change | Users need to view and update their credentials |
+|                    | [05.04] | [d4f84db](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/d4f84db22544e88016ae582c7c483fd3a464d1e9) | Added join course page | Students need to join courses via course code |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
