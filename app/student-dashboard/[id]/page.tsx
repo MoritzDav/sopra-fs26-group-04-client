@@ -36,7 +36,7 @@ const courses = [
     gradient: "linear-gradient(135deg, #f093fb, #f5576c)",
   },
   {
-    id: 3,
+    courseId: 3,
     title: "Physics Lab",
     abbreviation: "PH",
     professor: "Prof. Williams",
@@ -135,8 +135,9 @@ const courses = [
             alignItems: "center",
             justifyContent: "center",
             fontWeight: 600,
-            cursor: "pointer"
-        }} onClick={() => router.push(`/users/${urlId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
+            cursor: "pointer",
+            transition: "all 0.2s"
+        }} className="profile-icon" onClick={() => router.push(`/users/${urlId}`)}>
         {user.firstName.charAt(0)}{user.lastName.charAt(0)} {/*geht erst wenn daten aus backend gefetcht werden können*/}
         </div>
         </div>
@@ -148,7 +149,7 @@ const courses = [
 
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           {courses.map(course => (
-            <Card key={course.id} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
+            <Card key={course.courseId} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
               {/* Course Image */}
               <div style={{
                 background: course.gradient,
