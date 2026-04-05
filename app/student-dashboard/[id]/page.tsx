@@ -83,12 +83,15 @@ interface User {
       { courseId: 2, title: "Mathematics II", description: "Advanced Math", courseCode: 456, teacher: "Prof. Johnson" },
     ]);
 
-    const userData = await apiService.get<User>(`/users/${id}`);
-    const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
-    const firstName = userData.firstName;
-    const lastName = userData.lastName;
-    const userDataId = userData.id;
-    setUser({ firstName, lastName, userDataId, role});
+    //ent-kommentieren wenn endpoint /users/${id} existiert
+    //const userData = await apiService.get<User>(`/users/${id}`);
+    //const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
+    //const firstName = userData.firstName;
+    //const lastName = userData.lastName;
+    //const userDataId = userData.id;
+    //setUser({ firstName, lastName, userDataId, role});
+    setUser({firstName: "Max", lastName: "Mustermann", Id: "1", role: "STUDENT"})
+    const role = "STUDENT";
 
     if (!id || !role || !urlId) { //if any variable empty
         router.push("/login")
