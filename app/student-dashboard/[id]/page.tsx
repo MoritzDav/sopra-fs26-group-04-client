@@ -90,7 +90,7 @@ interface User {
     //const lastName = userData.lastName;
     //const userDataId = userData.id;
     //setUser({ firstName, lastName, userDataId, role});
-    setUser({firstName: "Max", lastName: "Mustermann", Id: "1", role: "STUDENT"})
+    setUser({firstName: "Max", lastName: "Mustermann", Id: "1", role: "STUDENT"});
     const role = "STUDENT";
 
     if (!id || !role || !urlId) { //if any variable empty
