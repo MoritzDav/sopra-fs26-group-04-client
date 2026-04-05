@@ -48,12 +48,12 @@ reason).
 
 ---
 
-## Contributions Week 2 - [Begin Date] to [End Date]
+## Contributions Week 2 - [30.03] to [05.04]
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
-| **[@MoritzDav](https://github.com/MoritzDav)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@MoritzDav](https://github.com/MoritzDav)** | [05.04]   | [ef01221] | [added a logout button] | [So users can logout when finished with a session] |
+|                    | [05.04]   | [0b15d32] | [Clearing local storage and redirecting after logout] | [That the logout works as intended] |
 | **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
