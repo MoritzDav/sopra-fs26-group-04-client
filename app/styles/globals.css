@@ -299,6 +299,14 @@ a {
 
 .ant-card {
   color: var(--text) !important;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.ant-card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    6px 10px 24px rgba(0, 0, 0, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.4);
 }
 
 .ant-card .ant-card-head-title {
