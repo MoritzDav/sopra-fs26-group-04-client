@@ -144,6 +144,7 @@ interface User {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <Button type="primary" onClick={() => router.push("/joinCourse")} icon={<PlusOutlined />}>Join Course</Button>
+          <Button danger onClick={() => { localStorage.clear(); router.push("/login"); }}>Logout</Button>
         <div style={{
             background: "var(--primary-glass)",
             color: "var(--primary)",

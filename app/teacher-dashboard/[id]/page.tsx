@@ -157,6 +157,8 @@ const courses = [
       <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 24px", background: "rgba(255,255,255,0.7)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ color: "var(--text)", fontSize: "18px", fontWeight: 600 }}>📚 Virtual Classroom</div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <Button type="primary" icon={<PlusOutlined />}>Create Course</Button>
+          <Button danger onClick={() => { localStorage.clear(); router.push("/login"); }}>Logout</Button>
           <Button type="primary" onClick={() => router.push("/createCourse")} icon={<PlusOutlined />}>Create Course</Button>
           <div style={{
             background: "var(--primary-glass)",
