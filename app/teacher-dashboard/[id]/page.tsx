@@ -169,7 +169,9 @@ const courses = [
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontWeight: 600
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.2s"
           }} onClick={() => router.push(`/users/${urlId}`)}>
             {user.firstName.charAt(0)}{user.lastName.charAt(0)}</div>
         </div>
