@@ -8,7 +8,7 @@ import { message, Button, Card, App } from "antd"
 import { PlusOutlined, ThunderboltOutlined } from "@ant-design/icons";
 
 
-export default function createCourse() {
+export default function CreateCourse() {
   const router = useRouter();
 
   useEffect(() => {
