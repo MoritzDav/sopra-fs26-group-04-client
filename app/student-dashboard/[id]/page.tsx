@@ -91,7 +91,7 @@ interface User {
     //const userDataId = userData.id;
     //setUser({ firstName, lastName, userDataId, role});
     setUser({firstName: "Max", lastName: "Mustermann", Id: "1", role: "STUDENT"});
-    const role = "STUDENT";
+    const role: string = "STUDENT";
 
     if (!id || !role || !urlId) { //if any variable empty
         router.push("/login")
