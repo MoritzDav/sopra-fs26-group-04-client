@@ -9,6 +9,10 @@ import { PlusOutlined } from "@ant-design/icons";
 
 interface Course {
     courseId: number;
+    title: string;
+    description: string;
+    courseCode: number;
+    teacher: string;
     }
 
 interface User {
@@ -18,7 +22,7 @@ interface User {
     role: string;
     }
 
-const courses = [
+{/*const courses = [
   {
     courseId: 1,
     title: "Computer Science 101",
@@ -43,7 +47,7 @@ const courses = [
     code: "PHY456",
     gradient: "linear-gradient(135deg, #4facfe, #00f2fe)",
   },
-];
+]; */}
 
  export default function StudentDashboard() {
   const router = useRouter();
@@ -52,7 +56,15 @@ const courses = [
   const urlId = params.id;
   const { message } = App.useApp();
   const [user, setUser] = useState({ firstName: "", lastName: "", Id: "", role: "" });
-  //const [courses, setCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+
+  const gradients = [
+    "linear-gradient(135deg, #667eea, #764ba2)",
+    "linear-gradient(135deg, #f093fb, #f5576c)",
+    "linear-gradient(135deg, #4facfe, #00f2fe)",
+    "linear-gradient(135deg, #43e97b, #38f9d7)",
+    "linear-gradient(135deg, #fa709a, #fee140)",
+  ];
 
   useEffect(() => {
    try {
@@ -63,16 +75,23 @@ const courses = [
       router.push("/login");
       return
     }
-    // const userData = await apiService.get<User>(`/users/${id}`);
-    // const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
-    // const firstName = userData.firstName;
+
+    //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`); //should get you a list of all courses with information, the student with id is enrolled in
+    //setCourse(courseData);
+    setCourses([ //weil noch kein endpoint dafür im backend
+      { courseId: 1, title: "Computer Science 101", description: "Intro to CS", courseCode: 123, teacher: "Prof. Smith" },
+      { courseId: 2, title: "Mathematics II", description: "Advanced Math", courseCode: 456, teacher: "Prof. Johnson" },
+    ]);
+
+    //ent-kommentieren wenn endpoint /users/${id} existiert
+    //const userData = await apiService.get<User>(`/users/${id}`);
+    //const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
+    //const firstName = userData.firstName;
     //const lastName = userData.lastName;
     //const userDataId = userData.id;
     //setUser({ firstName, lastName, userDataId, role});
-       const role = localStorage.getItem("role")?.replace(/"/g, "") || "";
-       const firstName = localStorage.getItem("firstName")?.replace(/"/g, "") || "";
-       const lastName = localStorage.getItem("lastName")?.replace(/"/g, "") || "";
-       setUser({ firstName, lastName, Id: id || "", role });
+    setUser({firstName: "Max", lastName: "Mustermann", Id: "1", role: "STUDENT"});
+    const role = "STUDENT";
 
     if (!id || !role || !urlId) { //if any variable empty
         router.push("/login")
@@ -125,6 +144,7 @@ const courses = [
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <Button type="primary" onClick={() => router.push("/joinCourse")} icon={<PlusOutlined />}>Join Course</Button>
+          <Button danger onClick={() => { localStorage.clear(); router.push("/login"); }}>Logout</Button>
         <div style={{
             background: "var(--primary-glass)",
             color: "var(--primary)",
@@ -152,7 +172,7 @@ const courses = [
             <Card key={course.courseId} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
               {/* Course Image */}
               <div style={{
-                background: course.gradient,
+                background: gradients[course.courseId % gradients.length],
                 borderRadius: "8px",
                 height: "80px",
                 display: "flex",
@@ -163,16 +183,15 @@ const courses = [
                 color: "white",
                 marginBottom: "12px"
               }}>
-                {course.abbreviation}
+                {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
               </div>
-
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
               <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>
-                {course.professor}
+                {course.teacher}
               </p>
               <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
-                Code: {course.code}
+                Code: {course.courseCode}
               </span>
             </Card>
           ))}
