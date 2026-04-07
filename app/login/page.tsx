@@ -5,7 +5,7 @@ import { useApi } from "@/hooks/useApi";
 import useLocalStorage from "@/hooks/useLocalStorage";
 import { User } from "@/types/user";
 import { useState } from "react";
-import { GraduationCap, Presentation, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 interface LoginFormValues {
   username: string;
@@ -15,7 +15,6 @@ interface LoginFormValues {
 const Login: React.FC = () => {
   const router = useRouter();
   const apiService = useApi();
-  const [role, setRole] = useState<"student" | "teacher">("student");
   const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState<LoginFormValues>({ username: "", password: "" });
 
@@ -44,7 +43,7 @@ const Login: React.FC = () => {
       if (response.username) setUsername(response.username);
 
 
-      router.push(role === "teacher" ? "/teacher-dashboard" : "/student-dashboard");
+      router.push(response.role === "TEACHER" ? "/teacher-dashboard" : "/student-dashboard");
     } catch (err) {
       if (err instanceof Error) {
         setError("Invalid username or password.");
@@ -53,8 +52,6 @@ const Login: React.FC = () => {
       }
     }
   };
-
-  const isTeacher = role === "teacher";
 
   return (
     <div className="login-container">
@@ -91,26 +88,6 @@ const Login: React.FC = () => {
             />
           </div>
 
-          <div className="login-role-toggle">
-            <span className="toggle-label">Login as:</span>
-            <div className="toggle-group">
-              <button
-                type="button"
-                className={`toggle-btn ${!isTeacher ? "active" : ""}`}
-                onClick={() => setRole("student")}
-              >
-                <GraduationCap size={14} style={{ display: "inline", verticalAlign: "-2px" }} /> Student
-              </button>
-              <button
-                type="button"
-                className={`toggle-btn ${isTeacher ? "active-teacher" : ""}`}
-                onClick={() => setRole("teacher")}
-              >
-                <Presentation size={14} style={{ display: "inline", verticalAlign: "-2px" }} /> Teacher
-              </button>
-            </div>
-          </div>
-
           {error && (
             <div style={{
               background: "rgba(239,68,68,0.06)",
@@ -127,7 +104,7 @@ const Login: React.FC = () => {
 
           <button
             type="submit"
-            className={`btn btn-full ${isTeacher ? "btn-teacher-glass" : "btn-primary-glass"}`}
+            className="btn btn-full btn-primary-glass"
           >
             Log In
           </button>
