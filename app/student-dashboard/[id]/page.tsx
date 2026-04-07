@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import useLocalStorage from "@/hooks/useLocalStorage";
-import { useApi } from "@/hooks/useApi";
-import { message, Button, Card, App } from "antd"
+// import { useApi } from "@/hooks/useApi";
+import { Button, Card, App } from "antd"
 import { PlusOutlined } from "@ant-design/icons";
 
 interface Course {
@@ -13,13 +12,6 @@ interface Course {
     description: string;
     courseCode: number;
     teacher: string;
-    }
-
-interface User {
-    id: number;
-    firstName: string;
-    lastName: string;
-    role: string;
     }
 
 {/*const courses = [
@@ -51,7 +43,7 @@ interface User {
 
  export default function StudentDashboard() {
   const router = useRouter();
-  const apiService = useApi();
+  //const apiService = useApi();
   const params = useParams();
   const urlId = params.id;
   const { message } = App.useApp();
