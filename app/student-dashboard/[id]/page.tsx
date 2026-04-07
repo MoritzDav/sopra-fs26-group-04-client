@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import useLocalStorage from "@/hooks/useLocalStorage";
-import { useApi } from "@/hooks/useApi";
-import { message, Button, Card, App } from "antd"
+// import { useApi } from "@/hooks/useApi";
+import { Button, Card, App } from "antd"
 import { PlusOutlined } from "@ant-design/icons";
 
 interface Course {
@@ -13,13 +12,6 @@ interface Course {
     description: string;
     courseCode: number;
     teacher: string;
-    }
-
-interface User {
-    id: number;
-    firstName: string;
-    lastName: string;
-    role: string;
     }
 
 {/*const courses = [
@@ -40,7 +32,7 @@ interface User {
     gradient: "linear-gradient(135deg, #f093fb, #f5576c)",
   },
   {
-    CourseId: 3,
+    courseId: 3,
     title: "Physics Lab",
     abbreviation: "PH",
     professor: "Prof. Williams",
@@ -51,7 +43,7 @@ interface User {
 
  export default function StudentDashboard() {
   const router = useRouter();
-  const apiService = useApi();
+  //const apiService = useApi();
   const params = useParams();
   const urlId = params.id;
   const { message } = App.useApp();
@@ -91,7 +83,7 @@ interface User {
     //const userDataId = userData.id;
     //setUser({ firstName, lastName, userDataId, role});
     setUser({firstName: "Max", lastName: "Mustermann", Id: "1", role: "STUDENT"});
-    const role = "STUDENT";
+    const role: string = "STUDENT";
 
     if (!id || !role || !urlId) { //if any variable empty
         router.push("/login")
@@ -155,8 +147,9 @@ interface User {
             alignItems: "center",
             justifyContent: "center",
             fontWeight: 600,
-            cursor: "pointer"
-        }} onClick={() => router.push(`/users/${urlId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
+            cursor: "pointer",
+            transition: "all 0.2s"
+        }} className="profile-icon" onClick={() => router.push(`/users/${urlId}`)}>
         {user.firstName.charAt(0)}{user.lastName.charAt(0)} {/*geht erst wenn daten aus backend gefetcht werden können*/}
         </div>
         </div>

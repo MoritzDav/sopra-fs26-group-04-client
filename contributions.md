@@ -69,7 +69,7 @@ reason).
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
-| **[@MoritzDav](https://github.com/MoritzDav)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@MoritzDav](https://github.com/MoritzDav)** | [07.04]   | [1dc8e27](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/1dc8e27) | Added not blank annotations for username, firstname, lastname, password | So you cannot register with empty credentials |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |

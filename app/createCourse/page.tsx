@@ -1,14 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
-import useLocalStorage from "@/hooks/useLocalStorage";
-import { useApi } from "@/hooks/useApi";
-import { message, Button, Card, App } from "antd"
-import { PlusOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { useRouter } from "next/navigation";
 
 
-export default function createCourse() {
+export default function CreateCourse() {
   const router = useRouter();
 
   useEffect(() => {

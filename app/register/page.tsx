@@ -29,9 +29,11 @@ const Register: React.FC = () => {
   const { set: setId } = useLocalStorage<string>("userId", "");
   const searchParams = useSearchParams();
   const role = searchParams.get("role") || "student";
-  const {
-    set: setRole,
-  } = useLocalStorage<string>("role", "");
+  const {set: setRole,} = useLocalStorage<string>("role", "");
+  const { set: setFirstName } = useLocalStorage<string>("firstName", "");
+  const { set: setLastName } = useLocalStorage<string>("lastName", "");
+  const { set: setUsername } = useLocalStorage<string>("username", "");
+
 
   const handleRegister = async (values: RegisterFormFields) => {
     try {
@@ -55,6 +57,11 @@ const Register: React.FC = () => {
       if (response.role) {
         setRole(response.role);
       }
+
+      if (response.firstName) setFirstName(response.firstName);
+      if (response.lastName) setLastName(response.lastName);
+      if (response.username) setUsername(response.username);
+
 
 
       if (role === "teacher") {

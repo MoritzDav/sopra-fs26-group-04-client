@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import useLocalStorage from "@/hooks/useLocalStorage";
-import { useApi } from "@/hooks/useApi";
-import { message, Button, Card, App, Modal } from "antd"
+// import { useApi } from "@/hooks/useApi";
+import { Button, Card, App, Modal } from "antd"
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined } from "@ant-design/icons";
 
 interface Course {
@@ -15,13 +14,6 @@ interface Course {
     teacher: string;
     students: number;
     sessions: number;
-    }
-
-interface User {
-    id: number;
-    firstName: string;
-    lastName: string;
-    role: string;
     }
 {/*
 const courses = [
@@ -47,7 +39,7 @@ const courses = [
 
  export default function TeacherDashboard() {
   const router = useRouter();
-  const apiService = useApi();
+  //const apiService = useApi();
   const params = useParams();
   const urlId = params.id;
   const { message } = App.useApp()
@@ -142,7 +134,7 @@ const courses = [
     });
   };
 
-  const handleShare = async (e: React.MouseEvent, courseId: number) => {
+  const handleShare = async (e: React.MouseEvent, _courseId: number) => {
     e.stopPropagation();
     //const qrCode = await apiService.get<string>(`/courses/${courseId}/qr`); //da noch keine kurse erstellt werden können hier erst ein placeholder
     //setQrCode(qrCode);
