@@ -70,7 +70,7 @@ reason).
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
 | **[@MoritzDav](https://github.com/MoritzDav)** | [07.04]   | [1dc8e27](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/1dc8e27) | Added not blank annotations for username, firstname, lastname, password | So you cannot register with empty credentials |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+|                    | [11.04]   | [[Link to Commit 2](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/47) | Created a whiteboard for the main functionality of the website | To draw, add notes, explain and share ideas |
 | **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
