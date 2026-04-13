@@ -30,7 +30,7 @@ const Login: React.FC = () => {
     e.preventDefault();
     setError(null);
     try {
-      const response = await apiService.post<User>("/auth/login", {
+      const response = await apiService.post<User>("/user/login", {
         username: values.username,
         password: values.password,
       });
