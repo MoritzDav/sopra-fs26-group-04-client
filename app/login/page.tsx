@@ -30,7 +30,7 @@ const Login: React.FC = () => {
     e.preventDefault();
     setError(null);
     try {
-      const response = await apiService.post<User>("/user/login", {
+      const response = await apiService.post<User>("/users/login", {
         username: values.username,
         password: values.password,
       });
@@ -43,7 +43,7 @@ const Login: React.FC = () => {
       if (response.username) setUsername(response.username);
 
 
-      router.push(response.role === "TEACHER" ? "/teacher-dashboard" : "/student-dashboard");
+      router.push(response.role === "TEACHER" ? `/teacher-dashboard/${response.id}` : `/student-dashboard/${response.id}`);
     } catch (err) {
       if (err instanceof Error) {
         setError("Invalid username or password.");
