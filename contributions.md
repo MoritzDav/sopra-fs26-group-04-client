@@ -65,7 +65,7 @@ reason).
 
 ---
 
-## Contributions Week 3 - [Begin date] to [End date]
+## Contributions Week 3 - [06.04.] to [19.04.]
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
@@ -73,8 +73,8 @@ reason).
 |                    | [11.04]   | [deb2631](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/47) | Created a whiteboard for the main functionality of the website | To draw, add notes, explain and share ideas |
 | **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@Bablandan](https://github.com/Bablandan)** | [10.04.]   | [Link missing pull request] | Creating PUT and DELETE endpoints to change or delete a course including safety check that the corresponding teacher does it + unit tests for the specific endpoints and service function | It's necessary to change and delete courses for the functionality of our App and testing it as well |
-|                    | [11.04.]   | [0ce3170]https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/0ce3170105c22fbc60a689c612e453ccd582f7f8 | Setting up all necessary entities alon UML Class diagram to create a session and provide a whiteboard | This is the basic structure for our main functionality of the app |
+| **[@Bablandan](https://github.com/Bablandan)** | [10.04.]   | [9320b20](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/9320b20a4cb83bca5ff0f2c761fd952a5ebbd880) | Creating PUT and DELETE endpoints to change or delete a course including safety check that the corresponding teacher does it + unit tests for the specific endpoints and service function | It's necessary to change and delete courses for the functionality of our App and testing it as well |
+|                    | [11.04.]   | [0ce3170](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/0ce3170105c22fbc60a689c612e453ccd582f7f8) | Setting up all necessary entities alon UML Class diagram to create a session and provide a whiteboard | This is the basic structure for our main functionality of the app |
 | **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
