@@ -41,7 +41,6 @@ const courses = [
 
  export default function TeacherDashboard() {
   const router = useRouter();
-  //const apiService = useApi();
   const params = useParams();
   const urlId = params.id;
   const apiService = useApi();
@@ -50,8 +49,13 @@ const courses = [
   const [courses, setCourses] = useState<Course[]>([]); //list of all courses the user is part of
   const [token, setToken] = useState<string | null>(null);
   const [sharedCourseCode, setSharedCourseCode] = useState<number | null>(null);
-  const [editModalOpen, setEditModalOpen] = useState(false)
 
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [createTitle, setCreateTitle] = useState("")
+  const [createDescription, setCreateDescription] = useState("")
+  const [createPictureURL, setCreatePictureURL] = useState("")
+
+  const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingCourseId, setEditingCourseId] = useState<number | null>(null) //else changes dont get saved
   const [editDescription, setEditDescription] = useState("")
   const [editTitle, setEditTitle] = useState("")
@@ -81,6 +85,13 @@ const courses = [
     const urlId = params.id;
     const id = localStorage.getItem("userId");
 
+    const newCourse = await apiService.post<Course>("/courses", {
+       title: createTitle,
+       description: createDescription,
+       pictureURL: createPictureURL || null,
+       teacherId: Number(id),
+        })
+        setCourses([...courses, newCourse])
 
     //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`); //should get you a list of all courses with information, the student with id is enrolled in
     //setCourse(courseData);
@@ -135,7 +146,7 @@ const courses = [
   const handleDelete = (e: React.MouseEvent, courseId: number) => {
     e.stopPropagation(); //without this you get redirected to course page
 
-    Modal.confirm({ //popup
+    modal.confirm({ //popup
       title: "Do you really want to delete your course?",
       content: "This action can't be undone.",
       okText: "Delete",
@@ -161,11 +172,16 @@ const courses = [
   const handleEdit = async (e: React.MouseEvent, _courseId: number) => {
       e.stopPropagation();
       const course = courses.find(c => c.courseId === _courseId)
-      setEditDescription(course?.description ?? "")
-      setEditModalOpen(true)
       setEditTitle(course?.title ?? "")
       setEditDescription(course?.description ?? "")
+      setEditPictureURL(course?.pictureURL ?? "")
       setEditingCourseId(_courseId)
+      setEditModalOpen(true)
+      //await apiService.put(`/courses/${editingCourseId}`, {
+          //title: editTitle,
+          //description: editDescription,
+          //pictureURL: editPictureURL || null,
+      //}, token)
   }
 
   return (
@@ -175,7 +191,7 @@ const courses = [
         <div style={{ color: "var(--text)", fontSize: "18px", fontWeight: 600 }}>📚 Virtual Classroom</div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <Button danger onClick={() => { localStorage.clear(); router.push("/login"); }}>Logout</Button>
-          <Button type="primary" onClick={() => router.push("/createCourse")} icon={<PlusOutlined />}>Create Course</Button>
+          <Button type="primary" onClick={() => setCreateModalOpen(true)} icon={<PlusOutlined />}>Create Course</Button>
           <div style={{
             background: "var(--primary-glass)",
             color: "var(--primary)",
@@ -204,10 +220,9 @@ const courses = [
             <Card key={course.courseId} style={{ width: 280 }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}>
               {/* Course Image, generated if not uploaded */}
               <div style={{
-                background: course.pictureURL ? undefined : gradients[course.courseId % gradients.length],
-                backgroundImage: course.pictureURL ? `url(${course.pictureURL})` : undefined,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
+                background: course.pictureURL
+                  ? `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url(${course.pictureURL}) center/cover`
+                  : gradients[course.courseId % gradients.length],
                 borderRadius: "8px",
                 height: "80px",
                 display: "flex",
@@ -219,16 +234,8 @@ const courses = [
                 marginBottom: "12px",
                 position: "relative",
               }}>
-                {course.pictureURL && (
-                <div style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: "rgba(0,0,0,0.4)",
-                  borderRadius: "8px",
-                  }} />
-                )}
                 <span style={{ position: "relative", zIndex: 1 }}>
-                {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
+                  {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
                 </span>
               </div>
 
@@ -254,62 +261,117 @@ const courses = [
           ))}
 
           {/* Add Course Card */}
-          <Card style={{ width: 280, cursor: "pointer", textAlign: "center" }} onClick={() => router.push("/createCourse")}>
+          <Card style={{ width: 280, cursor: "pointer", textAlign: "center" }} onClick={() => setCreateModalOpen(true)}>
             <div style={{ fontSize: "32px", color: "gray" }}>+</div>
             <p style={{ color: "gray" }}>Create New Course</p>
           </Card>
-          {/*Display QR to share course*/}
-            <Modal
-              open={qrModalOpen}
-              onCancel={() => setQrModalOpen(false)}
-              footer={null}
-              title={`Course Code: ${sharedCourseCode}`}
-            >
-              {qrCode && <img src={qrCode} alt="QR Code" style={{ width: "100%" }} />}
-            </Modal>
 
-            {/*Edit course details*/}
-            <Modal
-                open={editModalOpen}
-                onCancel={() => setEditModalOpen(false)}
-                onOk={() => {
-                    setCourses(courses.map(c =>
-                        c.courseId === editingCourseId
-                            ? { ...c, title: editTitle, description: editDescription, pictureURL: editPictureURL }
-                            : c
-                    ))
-                    setEditModalOpen(false)
-                }}
-                title="Edit Course"
-            >
+          {/*Display QR to share course*/}
+          <Modal
+            open={qrModalOpen}
+            onCancel={() => setQrModalOpen(false)}
+            footer={null}
+            title={`Course Code: ${sharedCourseCode}`}
+          >
+            {qrCode && <img src={qrCode} alt="QR Code" style={{ width: "100%" }} />}
+          </Modal>
+
+          {/*Edit course details*/}
+          <Modal
+            open={editModalOpen}
+            onCancel={() => setEditModalOpen(false)}
+            onOk={() => {
+              setCourses(courses.map(c =>
+                c.courseId === editingCourseId
+                  ? { ...c, title: editTitle, description: editDescription, pictureURL: editPictureURL || undefined }
+                  : c
+              ))
+              setEditModalOpen(false)
+            }}
+            title="Edit Course"
+          >
             <Input
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                placeholder="Title"
-                style={{ marginBottom: 8 }}
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              placeholder="Title"
+              style={{ marginBottom: 8 }}
             />
             <Input.TextArea
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                placeholder="Description"
-                rows={4}
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              placeholder="Description"
+              rows={4}
+              style={{ marginBottom: 8 }}
             />
             <Upload
-                accept="image/*"
-                showUploadList={false}
-                beforeUpload={(file) => {
+              accept="image/*"
+              showUploadList={false}
+              beforeUpload={(file) => {
                 const reader = new FileReader()
-                reader.onload = (e) => setEditPictureURL(e.target?.result as string)
+                reader.onload = (ev) => setEditPictureURL(ev.target?.result as string)
                 reader.readAsDataURL(file)
-                return false // verhindert automatischen Upload
-                }}
+                return false
+              }}
             >
-            <Button icon={<UploadOutlined />}>Upload background image</Button>
+              <Button icon={<UploadOutlined />} style={{ marginTop: 8 }}>Upload background image</Button>
             </Upload>
             {editPictureURL && (
-            <img src={editPictureURL} alt="preview" style={{ width: "100%", marginTop: 8, borderRadius: 8 }} />
+              <img src={editPictureURL} alt="preview" style={{ width: "100%", marginTop: 8, borderRadius: 8 }} />
             )}
-        </Modal>
+          </Modal>
+
+          {/*Create course*/}
+          <Modal
+            open={createModalOpen}
+            onCancel={() => setCreateModalOpen(false)}
+            onOk={() => {
+              const newCourse: Course = {
+                courseId: Date.now(),
+                title: createTitle,
+                description: createDescription,
+                courseCode: Math.floor(Math.random() * 900 + 100),
+                teacher: user.firstName,
+                students: 0,
+                sessions: 0,
+                pictureURL: createPictureURL || undefined,
+              }
+              setCourses([...courses, newCourse])
+              setCreateTitle("")
+              setCreateDescription("")
+              setCreatePictureURL("")
+              setCreateModalOpen(false)
+            }}
+            title="Create Course"
+          >
+            <Input
+              value={createTitle}
+              onChange={(e) => setCreateTitle(e.target.value)}
+              placeholder="Title"
+              style={{ marginBottom: 8 }}
+            />
+            <Input.TextArea
+              value={createDescription}
+              onChange={(e) => setCreateDescription(e.target.value)}
+              placeholder="Description"
+              rows={4}
+              style={{ marginBottom: 8 }}
+            />
+            <Upload
+              accept="image/*"
+              showUploadList={false}
+              beforeUpload={(file) => {
+                const reader = new FileReader()
+                reader.onload = (ev) => setCreatePictureURL(ev.target?.result as string)
+                reader.readAsDataURL(file)
+                return false
+              }}
+            >
+              <Button icon={<UploadOutlined />} style={{ marginTop: 8 }}>Upload background image</Button>
+            </Upload>
+            {createPictureURL && (
+              <img src={createPictureURL} alt="preview" style={{ width: "100%", marginTop: 8, borderRadius: 8 }} />
+            )}
+          </Modal>
         </div>
       </div>
     </div>
