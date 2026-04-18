@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 // import { useApi } from "@/hooks/useApi";
-import { Button, Card, App, Modal, Input } from "antd"
-import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined } from "@ant-design/icons";
+import { Button, Card, App, Modal, Input, Upload } from "antd"
+import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined, UploadOutlined } from "@ant-design/icons";
 import { useApi } from "@/hooks/useApi";
 
 interface Course {
@@ -15,6 +15,7 @@ interface Course {
     teacher: string;
     students: number;
     sessions: number;
+    pictureURL?: string; //background image
     }
 {/*
 const courses = [
@@ -51,11 +52,12 @@ const courses = [
   const [sharedCourseCode, setSharedCourseCode] = useState<number | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false)
 
+  const [editingCourseId, setEditingCourseId] = useState<number | null>(null) //else changes dont get saved
   const [editDescription, setEditDescription] = useState("")
   const [editTitle, setEditTitle] = useState("")
+  const [editPictureURL, setEditPictureURL] = useState("")
 
-
-     const [qrCode, setQrCode] = useState<string | null>(null);
+  const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
 
   const gradients = [
@@ -163,6 +165,7 @@ const courses = [
       setEditModalOpen(true)
       setEditTitle(course?.title ?? "")
       setEditDescription(course?.description ?? "")
+      setEditingCourseId(_courseId)
   }
 
   return (
@@ -199,9 +202,12 @@ const courses = [
           {/* Course Cards */}
           {courses.map(course => (
             <Card key={course.courseId} style={{ width: 280 }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}>
-              {/* Course Image */}
+              {/* Course Image, generated if not uploaded */}
               <div style={{
-                background: gradients[course.courseId % gradients.length],
+                background: course.pictureURL ? undefined : gradients[course.courseId % gradients.length],
+                backgroundImage: course.pictureURL ? `url(${course.pictureURL})` : undefined,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
                 borderRadius: "8px",
                 height: "80px",
                 display: "flex",
@@ -210,10 +216,20 @@ const courses = [
                 fontSize: "24px",
                 fontWeight: 700,
                 color: "white",
-                marginBottom: "12px"
+                marginBottom: "12px",
+                position: "relative",
               }}>
-
+                {course.pictureURL && (
+                <div style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "rgba(0,0,0,0.4)",
+                  borderRadius: "8px",
+                  }} />
+                )}
+                <span style={{ position: "relative", zIndex: 1 }}>
                 {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
+                </span>
               </div>
 
               {/* Course Info */}
@@ -256,7 +272,14 @@ const courses = [
             <Modal
                 open={editModalOpen}
                 onCancel={() => setEditModalOpen(false)}
-                onOk={() => setEditModalOpen(false)}
+                onOk={() => {
+                    setCourses(courses.map(c =>
+                        c.courseId === editingCourseId
+                            ? { ...c, title: editTitle, description: editDescription, pictureURL: editPictureURL }
+                            : c
+                    ))
+                    setEditModalOpen(false)
+                }}
                 title="Edit Course"
             >
             <Input
@@ -271,6 +294,21 @@ const courses = [
                 placeholder="Description"
                 rows={4}
             />
+            <Upload
+                accept="image/*"
+                showUploadList={false}
+                beforeUpload={(file) => {
+                const reader = new FileReader()
+                reader.onload = (e) => setEditPictureURL(e.target?.result as string)
+                reader.readAsDataURL(file)
+                return false // verhindert automatischen Upload
+                }}
+            >
+            <Button icon={<UploadOutlined />}>Upload background image</Button>
+            </Upload>
+            {editPictureURL && (
+            <img src={editPictureURL} alt="preview" style={{ width: "100%", marginTop: 8, borderRadius: 8 }} />
+            )}
         </Modal>
         </div>
       </div>
