@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 // import { useApi } from "@/hooks/useApi";
-import { Button, Card, App, Modal } from "antd"
-import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined } from "@ant-design/icons";
+import { Button, Card, App, Modal, Input, Upload } from "antd"
+import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined, UploadOutlined } from "@ant-design/icons";
+import { useApi } from "@/hooks/useApi";
 
 interface Course {
     courseId: number;
@@ -14,6 +15,7 @@ interface Course {
     teacher: string;
     students: number;
     sessions: number;
+    pictureURL?: string; //background image
     }
 {/*
 const courses = [
@@ -42,9 +44,18 @@ const courses = [
   //const apiService = useApi();
   const params = useParams();
   const urlId = params.id;
-  const { message } = App.useApp()
+  const apiService = useApi();
+  const { message, modal } = App.useApp()
   const [user, setUser] = useState({ firstName: "", lastName: "", Id: "", role: "" });
-  const [courses, setCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]); //list of all courses the user is part of
+  const [token, setToken] = useState<string | null>(null);
+  const [sharedCourseCode, setSharedCourseCode] = useState<number | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false)
+
+  const [editingCourseId, setEditingCourseId] = useState<number | null>(null) //else changes dont get saved
+  const [editDescription, setEditDescription] = useState("")
+  const [editTitle, setEditTitle] = useState("")
+  const [editPictureURL, setEditPictureURL] = useState("")
 
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -60,12 +71,14 @@ const courses = [
   useEffect(() => {
    try {
     const fetchData = async () => {
-    const token = localStorage.getItem("token");
+    const rawToken = localStorage.getItem("token");
+    const token = rawToken ? rawToken.replace(/"/g, "") : null
+    setToken(token);
     if (!token || token === '""') {
       router.push("/login");
       return
     }
-    const urlId = params.id
+    const urlId = params.id;
     const id = localStorage.getItem("userId");
 
 
@@ -121,6 +134,7 @@ const courses = [
   //delete course
   const handleDelete = (e: React.MouseEvent, courseId: number) => {
     e.stopPropagation(); //without this you get redirected to course page
+
     Modal.confirm({ //popup
       title: "Do you really want to delete your course?",
       content: "This action can't be undone.",
@@ -128,7 +142,7 @@ const courses = [
       okButtonProps: { danger: true },
       cancelText: "Cancel",
       onOk: async () => {
-        //await apiService.delete(`/courses/${courseId}`); activate once enpoint exists
+        //await apiService.delete(`/courses/${courseId}`, token);
         setCourses(courses.filter(c => c.courseId !== courseId));
       }
     });
@@ -136,12 +150,23 @@ const courses = [
 
   const handleShare = async (e: React.MouseEvent, _courseId: number) => {
     e.stopPropagation();
+    const course = courses.find(c => c.courseId === _courseId)
+    setSharedCourseCode(course?.courseCode ?? null)
     //const qrCode = await apiService.get<string>(`/courses/${courseId}/qr`); //da noch keine kurse erstellt werden können hier erst ein placeholder
     //setQrCode(qrCode);
     setQrCode("https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=test");
     setQrModalOpen(true);
   }
 
+  const handleEdit = async (e: React.MouseEvent, _courseId: number) => {
+      e.stopPropagation();
+      const course = courses.find(c => c.courseId === _courseId)
+      setEditDescription(course?.description ?? "")
+      setEditModalOpen(true)
+      setEditTitle(course?.title ?? "")
+      setEditDescription(course?.description ?? "")
+      setEditingCourseId(_courseId)
+  }
 
   return (
     <div style={{ width: "100%", minHeight: "100vh" }}>
@@ -149,7 +174,6 @@ const courses = [
       <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 24px", background: "rgba(255,255,255,0.7)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ color: "var(--text)", fontSize: "18px", fontWeight: 600 }}>📚 Virtual Classroom</div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <Button type="primary" icon={<PlusOutlined />}>Create Course</Button>
           <Button danger onClick={() => { localStorage.clear(); router.push("/login"); }}>Logout</Button>
           <Button type="primary" onClick={() => router.push("/createCourse")} icon={<PlusOutlined />}>Create Course</Button>
           <div style={{
@@ -164,7 +188,7 @@ const courses = [
             fontWeight: 600,
             cursor: "pointer",
             transition: "all 0.2s"
-          }} onClick={() => router.push(`/users/${urlId}`)}>
+          }} className="profile-icon" onClick={() => router.push(`/users/${urlId}`)}>
             {user.firstName.charAt(0)}{user.lastName.charAt(0)}</div>
         </div>
       </nav>
@@ -178,9 +202,12 @@ const courses = [
           {/* Course Cards */}
           {courses.map(course => (
             <Card key={course.courseId} style={{ width: 280 }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}>
-              {/* Course Image */}
+              {/* Course Image, generated if not uploaded */}
               <div style={{
-                background: gradients[course.courseId % gradients.length],
+                background: course.pictureURL ? undefined : gradients[course.courseId % gradients.length],
+                backgroundImage: course.pictureURL ? `url(${course.pictureURL})` : undefined,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
                 borderRadius: "8px",
                 height: "80px",
                 display: "flex",
@@ -189,14 +216,25 @@ const courses = [
                 fontSize: "24px",
                 fontWeight: 700,
                 color: "white",
-                marginBottom: "12px"
+                marginBottom: "12px",
+                position: "relative",
               }}>
-
+                {course.pictureURL && (
+                <div style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "rgba(0,0,0,0.4)",
+                  borderRadius: "8px",
+                  }} />
+                )}
+                <span style={{ position: "relative", zIndex: 1 }}>
                 {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
+                </span>
               </div>
 
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
+              <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>{course.description}</p>
               <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>
               <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
                 {course.students} students • {course.sessions} sessions
@@ -208,8 +246,8 @@ const courses = [
 
               {/* Actions */}
               <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
-                <Button icon={<EditOutlined />} size="small" onClick={(e) => { e.stopPropagation(); router.push("/editCourse"); }}/>
-                <Button icon={<DeleteOutlined />} size="small" danger onClick={(e) => handleDelete(e, course.courseId)} />
+                  <Button icon={<EditOutlined />} size="small" onClick={(e) => { e.stopPropagation(); handleEdit(e, course.courseId); }}/>
+                  <Button icon={<DeleteOutlined />} size="small" danger onClick={(e) => handleDelete(e, course.courseId)} />
                 <Button icon={<ShareAltOutlined />} size="small" onClick={(e) => handleShare(e, course.courseId)}/>
               </div>
             </Card>
@@ -225,10 +263,53 @@ const courses = [
               open={qrModalOpen}
               onCancel={() => setQrModalOpen(false)}
               footer={null}
-              title="Course QR Code"
+              title={`Course Code: ${sharedCourseCode}`}
             >
               {qrCode && <img src={qrCode} alt="QR Code" style={{ width: "100%" }} />}
             </Modal>
+
+            {/*Edit course details*/}
+            <Modal
+                open={editModalOpen}
+                onCancel={() => setEditModalOpen(false)}
+                onOk={() => {
+                    setCourses(courses.map(c =>
+                        c.courseId === editingCourseId
+                            ? { ...c, title: editTitle, description: editDescription, pictureURL: editPictureURL }
+                            : c
+                    ))
+                    setEditModalOpen(false)
+                }}
+                title="Edit Course"
+            >
+            <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="Title"
+                style={{ marginBottom: 8 }}
+            />
+            <Input.TextArea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Description"
+                rows={4}
+            />
+            <Upload
+                accept="image/*"
+                showUploadList={false}
+                beforeUpload={(file) => {
+                const reader = new FileReader()
+                reader.onload = (e) => setEditPictureURL(e.target?.result as string)
+                reader.readAsDataURL(file)
+                return false // verhindert automatischen Upload
+                }}
+            >
+            <Button icon={<UploadOutlined />}>Upload background image</Button>
+            </Upload>
+            {editPictureURL && (
+            <img src={editPictureURL} alt="preview" style={{ width: "100%", marginTop: 8, borderRadius: 8 }} />
+            )}
+        </Modal>
         </div>
       </div>
     </div>

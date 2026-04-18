@@ -179,6 +179,7 @@ interface Course {
               </div>
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
+              <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>{course.description}</p>
               <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>
                 {course.teacher}
               </p>
