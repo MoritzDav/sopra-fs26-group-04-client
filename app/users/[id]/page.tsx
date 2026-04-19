@@ -10,7 +10,7 @@
 
 import React from "react";
 import { useParams, useRouter } from "next/navigation";
-import useLocalStorage from "@/hooks/useLocalStorage";
+import { useUser } from "@/contexts/UserContext";
 import { User, Pencil, X, Check, Lock, ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { useApi } from "@/hooks/useApi";
@@ -21,15 +21,14 @@ const Profile: React.FC = () => {
     const params = useParams();
     const id = params.id;
     const apiService = useApi();
+    const { user, clearUser } = useUser();
 
-    const { value: userId } = useLocalStorage<string>("userId", "");
-    const { value: token } = useLocalStorage<string>("token", "");
-    const { value: firstName } = useLocalStorage<string>("firstName", "");
-    const { value: lastName } = useLocalStorage<string>("lastName", "");
-    const { value: username } = useLocalStorage<string>("username", "");
-    const { value: role } = useLocalStorage<string>("role", "");
+    const firstName = user?.firstName || "";
+    const lastName = user?.lastName || "";
+    const username = user?.username || "";
+    const role = user?.role || "";
 
-    const isOwnProfile = String(id) === String(userId);
+    const isOwnProfile = String(id) === String(user?.id);
 
     // Edit states for each field
     const [editingField, setEditingField] = useState<string | null>(null);
@@ -86,8 +85,8 @@ const Profile: React.FC = () => {
                 oldPassword: passwordValues.oldPassword,
                 newPassword: passwordValues.newPassword,
             });
-            // Clear localStorage and redirect to login after password change
-            localStorage.clear();
+            // Clear user state + localStorage and redirect to login after password change
+            clearUser();
             router.push("/login");
         } catch (err) {
             if (err instanceof Error) {

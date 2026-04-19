@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
-import useLocalStorage from "@/hooks/useLocalStorage";
+import { useUser } from "@/contexts/UserContext";
 import { User } from "@/types/user";
 import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
@@ -15,16 +15,9 @@ interface LoginFormValues {
 const Login: React.FC = () => {
   const router = useRouter();
   const apiService = useApi();
+  const { setUser } = useUser();
   const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState<LoginFormValues>({ username: "", password: "" });
-
-  const { set: setToken } = useLocalStorage<string>("token", "");
-  const { set: setId } = useLocalStorage<string>("userId", "");
-
-  const { set: setStoredRole } = useLocalStorage<string>("role", "");
-  const { set: setFirstName } = useLocalStorage<string>("firstName", "");
-  const { set: setLastName } = useLocalStorage<string>("lastName", "");
-  const { set: setUsername } = useLocalStorage<string>("username", "");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,13 +28,15 @@ const Login: React.FC = () => {
         password: values.password,
       });
 
-      if (response.token) setToken(response.token);
-      if (response.id) setId(response.id);
-      if (response.role) setStoredRole(response.role);
-      if (response.firstName) setFirstName(response.firstName);
-      if (response.lastName) setLastName(response.lastName);
-      if (response.username) setUsername(response.username);
-
+      // Save user data to context (and localStorage as fallback)
+      setUser({
+        id: response.id,
+        firstName: response.firstName,
+        lastName: response.lastName,
+        username: response.username,
+        role: response.role,
+        token: response.token,
+      });
 
       router.push(response.role === "TEACHER" ? `/teacher-dashboard/${response.id}` : `/student-dashboard/${response.id}`);
     } catch (err) {
