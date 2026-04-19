@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 // import { useApi } from "@/hooks/useApi";
+import { useUser } from "@/contexts/UserContext";
 import { Button, Card, App } from "antd"
 import { PlusOutlined } from "@ant-design/icons";
 
@@ -47,7 +48,7 @@ interface Course {
   const params = useParams();
   const urlId = params.id;
   const { message } = App.useApp();
-  const [user, setUser] = useState({ firstName: "", lastName: "", Id: "", role: "" });
+  const { user, isLoading, clearUser } = useUser();
   const [courses, setCourses] = useState<Course[]>([]);
 
   const gradients = [
@@ -59,65 +60,41 @@ interface Course {
   ];
 
   useEffect(() => {
-   try {
-   const fetchData = async () => {
-    const id = localStorage.getItem("userId");
-    const token = localStorage.getItem("token");
-    if (!token || token === '""') { //if user not logged in
+    // Wait for provider to hydrate before checking auth
+    if (isLoading) return;
+
+    // Not logged in -> redirect to login
+    if (!user || !user.token) {
       router.push("/login");
-      return
+      return;
     }
 
-    //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`); //should get you a list of all courses with information, the student with id is enrolled in
-    //setCourse(courseData);
-    setCourses([ //weil noch kein endpoint dafür im backend
+    // URL id must match logged-in user id
+    if (String(user.id) !== String(urlId)) {
+      message.error("You don't have access to this page!");
+      if (user.role === "TEACHER") {
+        router.push(`/teacher-dashboard/${user.id}`);
+      } else {
+        router.push(`/student-dashboard/${user.id}`);
+      }
+      return;
+    }
+
+    // Only students can see the student dashboard
+    if (user.role !== "STUDENT") {
+      message.error("You don't have access to this page!");
+      router.push(`/teacher-dashboard/${user.id}`);
+      return;
+    }
+
+    // Load courses (placeholder until backend endpoint exists)
+    //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`);
+    //setCourses(courseData);
+    setCourses([
       { courseId: 1, title: "Computer Science 101", description: "Intro to CS", courseCode: 123, teacher: "Prof. Smith" },
       { courseId: 2, title: "Mathematics II", description: "Advanced Math", courseCode: 456, teacher: "Prof. Johnson" },
     ]);
-
-    //ent-kommentieren wenn endpoint /users/${id} existiert
-    //const userData = await apiService.get<User>(`/users/${id}`);
-    //const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
-    //const firstName = userData.firstName;
-    //const lastName = userData.lastName;
-    //const userDataId = userData.id;
-    //setUser({ firstName, lastName, userDataId, role});
-    setUser({firstName: "Max", lastName: "Mustermann", Id: "1", role: "STUDENT"});
-    const role: string = "STUDENT";
-
-    if (!id || !role || !urlId) { //if any variable empty
-        router.push("/login")
-        return
-    }
-
-
-    //if id doesnt fit URL --> redirect
-    if (id !== urlId) {
-        message.error("You don't have access to this page!")
-        if (role === "TEACHER"){
-            router.push(`/teacher-dashboard/${id}`)
-            }
-        else {
-
-            router.push(`/student-dashboard/${id}`)
-            }
-        return
-        }
-
-    //make sure that only students have access to student-dashboards
-    if (role !== "STUDENT") {
-        message.error("You don't have access to this page!")
-        router.push(`/teacher-dashboard/${id}`)
-        return
-        }
-    }
-    fetchData();
-    } catch (error) {
-        if (error instanceof Error) {
-            alert(`Something went wrong:\n${error.message}`);
-            }
-        }
-  }, [router]);
+  }, [user, isLoading, urlId, router, message]);
 
   return (
     <div style={{ width: "100%", minHeight: "100vh" }}>
@@ -136,7 +113,7 @@ interface Course {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <Button type="primary" onClick={() => router.push("/joinCourse")} icon={<PlusOutlined />}>Join Course</Button>
-          <Button danger onClick={() => { localStorage.clear(); router.push("/login"); }}>Logout</Button>
+          <Button danger onClick={() => { clearUser(); router.push("/login"); }}>Logout</Button>
         <div style={{
             background: "var(--primary-glass)",
             color: "var(--primary)",
@@ -150,7 +127,7 @@ interface Course {
             cursor: "pointer",
             transition: "all 0.2s"
         }} className="profile-icon" onClick={() => router.push(`/users/${urlId}`)}>
-        {user.firstName.charAt(0)}{user.lastName.charAt(0)} {/*geht erst wenn daten aus backend gefetcht werden können*/}
+        {user?.firstName?.charAt(0) ?? ""}{user?.lastName?.charAt(0) ?? ""}
         </div>
         </div>
       </nav>

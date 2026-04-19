@@ -1,7 +1,7 @@
 "use client";
 
 import { useApi } from "@/hooks/useApi";
-import useLocalStorage from "@/hooks/useLocalStorage";
+import { useUser } from "@/contexts/UserContext";
 import { User } from "@/types/user";
 import { Button, Form, Input } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -22,17 +22,10 @@ interface RegisterFormFields {
 const Register: React.FC = () => {
   const router = useRouter();
   const apiService = useApi();
+  const { setUser } = useUser();
   const [form] = Form.useForm();
-  const {
-    set: setToken,
-  } = useLocalStorage<string>("token", "");
-  const { set: setId } = useLocalStorage<string>("userId", "");
   const searchParams = useSearchParams();
   const role = searchParams.get("role") || "student";
-  const {set: setRole,} = useLocalStorage<string>("role", "");
-  const { set: setFirstName } = useLocalStorage<string>("firstName", "");
-  const { set: setLastName } = useLocalStorage<string>("lastName", "");
-  const { set: setUsername } = useLocalStorage<string>("username", "");
 
 
   const handleRegister = async (values: RegisterFormFields) => {
@@ -46,23 +39,15 @@ const Register: React.FC = () => {
         role: role.toUpperCase(),
       });
 
-
-      // Use the useLocalStorage hook that returned a setter function (setToken in line 41) to store the token if available
-      if (response.token) {
-        setToken(response.token);
-      }
-      if (response.id) {
-        setId(response.id);
-      }
-      if (response.role) {
-        setRole(response.role);
-      }
-
-      if (response.firstName) setFirstName(response.firstName);
-      if (response.lastName) setLastName(response.lastName);
-      if (response.username) setUsername(response.username);
-
-
+      // Save user data to context (and localStorage as fallback)
+      setUser({
+        id: response.id,
+        firstName: response.firstName,
+        lastName: response.lastName,
+        username: response.username,
+        role: response.role,
+        token: response.token,
+      });
 
       if (role === "teacher") {
         router.push(`/teacher-dashboard/${response.id}`);

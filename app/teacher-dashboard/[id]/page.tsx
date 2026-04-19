@@ -6,6 +6,7 @@ import { useRouter, useParams } from "next/navigation";
 import { Button, Card, App, Modal, Input, Upload } from "antd"
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined, UploadOutlined } from "@ant-design/icons";
 import { useApi } from "@/hooks/useApi";
+import { useUser } from "@/contexts/UserContext";
 
 interface Course {
     courseId: number;
@@ -45,9 +46,9 @@ const courses = [
   const urlId = params.id;
   const apiService = useApi();
   const { message, modal } = App.useApp()
-  const [user, setUser] = useState({ firstName: "", lastName: "", Id: "", role: "" });
+  const { user, isLoading, clearUser } = useUser();
+  const token = user?.token ?? null;
   const [courses, setCourses] = useState<Course[]>([]); //list of all courses the user is part of
-  const [token, setToken] = useState<string | null>(null);
   const [sharedCourseCode, setSharedCourseCode] = useState<number | null>(null);
 
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -73,74 +74,41 @@ const courses = [
   ];
 
   useEffect(() => {
-   try {
-    const fetchData = async () => {
-    const rawToken = localStorage.getItem("token");
-    const token = rawToken ? rawToken.replace(/"/g, "") : null
-    setToken(token);
-    if (!token || token === '""') {
+    // Wait for provider to hydrate before checking auth
+    if (isLoading) return;
+
+    // Not logged in -> redirect to login
+    if (!user || !user.token) {
       router.push("/login");
-      return
+      return;
     }
-    const urlId = params.id;
-    const id = localStorage.getItem("userId");
 
-    const newCourse = await apiService.post<Course>("/courses", {
-       title: createTitle,
-       description: createDescription,
-       pictureURL: createPictureURL || null,
-       teacherId: Number(id),
-        })
-        setCourses([...courses, newCourse])
+    // URL id must match logged-in user id
+    if (String(user.id) !== String(urlId)) {
+      message.error("You don't have access to this page!");
+      if (user.role === "TEACHER") {
+        router.push(`/teacher-dashboard/${user.id}`);
+      } else {
+        router.push(`/student-dashboard/${user.id}`);
+      }
+      return;
+    }
 
-    //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`); //should get you a list of all courses with information, the student with id is enrolled in
-    //setCourse(courseData);
-    setCourses([ //weil noch kein endpoint dafür im backend
+    // Only teachers can see the teacher dashboard
+    if (user.role !== "TEACHER") {
+      message.error("You don't have access to this page!");
+      router.push(`/student-dashboard/${user.id}`);
+      return;
+    }
+
+    // Load courses (placeholder until backend endpoint exists)
+    //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`);
+    //setCourses(courseData);
+    setCourses([
       { courseId: 1, title: "Computer Science 101", description: "Intro to CS", courseCode: 123, teacher: "Prof. Smith", students: 3, sessions: 5 },
       { courseId: 2, title: "Mathematics II", description: "Advanced Math", courseCode: 456, teacher: "Prof. Johnson", students: 6, sessions: 10 },
     ]);
-
-    //ent-kommentieren wenn endpoint /users/${id} existiert
-    //const userData = await apiService.get<User>(`/users/${id}`);
-    //const role = userData.role.replace(/"/g, ""); //because role gets stored with ""
-    //const firstName = userData.firstName;
-    //const lastName = userData.lastName;
-    //const userDataId = userData.id;
-    //setUser({ firstName, lastName, userDataId, role});
-    setUser({firstName: "Max", lastName: "Mustermann", Id: "1", role: "TEACHER"});
-    const role = "TEACHER";
-
-    if (!id || !role || !urlId) {
-        router.push("/login")
-        return
-    }
-
-    if (id !== urlId) {
-        message.error("You don't have access to this page!")
-        if (role === "TEACHER"){
-            router.push(`/teacher-dashboard/${id}`)
-            }
-        else {
-
-            router.push(`/student-dashboard/${id}`)
-            }
-        return
-        }
-
-    //make sure that only teachers have access to teacher-dashboards
-    if (role !== "TEACHER") {
-        message.error("You don't have access to this page!")
-        router.push(`/student-dashboard/${id}`)
-        return
-        }
-    }
-    fetchData();
-    } catch (error) {
-        if (error instanceof Error) {
-            alert(`Something went wrong:\n${error.message}`);
-            }
-        }
-  }, [router]);
+  }, [user, isLoading, urlId, router, message]);
 
   //delete course
   const handleDelete = (e: React.MouseEvent, courseId: number) => {
@@ -190,7 +158,7 @@ const courses = [
       <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 24px", background: "rgba(255,255,255,0.7)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ color: "var(--text)", fontSize: "18px", fontWeight: 600 }}>📚 Virtual Classroom</div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <Button danger onClick={() => { localStorage.clear(); router.push("/login"); }}>Logout</Button>
+          <Button danger onClick={() => { clearUser(); router.push("/login"); }}>Logout</Button>
           <Button type="primary" onClick={() => setCreateModalOpen(true)} icon={<PlusOutlined />}>Create Course</Button>
           <div style={{
             background: "var(--primary-glass)",
@@ -205,7 +173,7 @@ const courses = [
             cursor: "pointer",
             transition: "all 0.2s"
           }} className="profile-icon" onClick={() => router.push(`/users/${urlId}`)}>
-            {user.firstName.charAt(0)}{user.lastName.charAt(0)}</div>
+            {user?.firstName?.charAt(0) ?? ""}{user?.lastName?.charAt(0) ?? ""}</div>
         </div>
       </nav>
 
@@ -330,7 +298,7 @@ const courses = [
                 title: createTitle,
                 description: createDescription,
                 courseCode: Math.floor(Math.random() * 900 + 100),
-                teacher: user.firstName,
+                teacher: user?.firstName ?? "",
                 students: 0,
                 sessions: 0,
                 pictureURL: createPictureURL || undefined,
