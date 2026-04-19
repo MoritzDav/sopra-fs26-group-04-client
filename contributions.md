@@ -77,8 +77,8 @@ reason).
 |                    | [11.04.]   | [0ce3170](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/0ce3170105c22fbc60a689c612e453ccd582f7f8) | Setting up all necessary entities alon UML Class diagram to create a session and provide a whiteboard | This is the basic structure for our main functionality of the app |
 | **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [18.04]   | [90483a2](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/90483a2d496569d3a628275948b2cfc36fc5e6de) | session management tests for UserService and CourseEnrollmentService | tests for main functionalities |
+|                    | [19.04]   | [0c03a63](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/0c03a630f5d8329f96d8f546f4b98fd01fd55ca8) | WebSocket support for whiteboard functionality and related tests | for our interactive feature |
 
 ---
 
