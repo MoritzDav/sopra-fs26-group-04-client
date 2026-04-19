@@ -34,7 +34,17 @@ const PRESET_COLORS = [
   "#10B981", "#8B5CF6", "#EC4899", "#FFFFFF",
 ];
 
-const WhiteboardCanvas: React.FC = () => {
+interface WhiteboardCanvasProps {
+  readOnly?: boolean;   // disables drawing + hides toolbar
+  fullHeight?: boolean; // if false, fills parent instead of 100vh (for split view)
+  label?: string;       // optional header label shown above the canvas
+}
+
+const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
+  readOnly = false,
+  fullHeight = true,
+  label,
+}) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -431,9 +441,27 @@ const WhiteboardCanvas: React.FC = () => {
   const canRedo = histState.idx < histState.len - 1;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg)" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: fullHeight ? "100vh" : "100%", background: "var(--bg)" }}>
 
-      {/* ── Toolbar ── */}
+      {/* ── Optional label header (for split view) ── */}
+      {label && (
+        <div style={{
+          padding: "8px 16px",
+          background: readOnly ? "rgba(91,108,255,0.08)" : "rgba(16,185,129,0.08)",
+          borderBottom: "1px solid var(--border)",
+          fontSize: "13px",
+          fontWeight: 600,
+          color: readOnly ? "#5B6CFF" : "#059669",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+        }}>
+          {label} {readOnly && <span style={{ fontSize: "11px", opacity: 0.7 }}>(read-only)</span>}
+        </div>
+      )}
+
+      {/* ── Toolbar (hidden in readOnly mode) ── */}
+      {!readOnly && (
       <div style={{
         display: "flex", alignItems: "center", gap: "8px",
         padding: "10px 16px",
@@ -557,16 +585,17 @@ const WhiteboardCanvas: React.FC = () => {
           <Trash2 size={18} />
         </button>
       </div>
+      )}
 
       {/* ── Canvas area ── */}
       <div ref={containerRef} style={{ flex: 1, overflow: "hidden", position: "relative" }}>
         <canvas
           ref={canvasRef}
-          style={{ display: "block", width: "100%", height: "100%", cursor, touchAction: "none", background: "#FFFFFF" }}
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
+          style={{ display: "block", width: "100%", height: "100%", cursor: readOnly ? "default" : cursor, touchAction: "none", background: "#FFFFFF", border: "1px solid #D1D5DB" }}
+          onMouseDown={readOnly ? undefined : startDrawing}
+          onMouseMove={readOnly ? undefined : draw}
+          onMouseUp={readOnly ? undefined : stopDrawing}
+          onMouseLeave={readOnly ? undefined : stopDrawing}
         />
 
         {textElements.map((el) => {
