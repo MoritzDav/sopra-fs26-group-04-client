@@ -90,7 +90,7 @@ reason).
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@Bablandan](https://github.com/Bablandan)** | [19.04.]   | [469e40f](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/106/commits/469e40f51a7580a78780000d413d5bc5d990f3d0) inside Pull Request [679383e](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/679383e377eed232ff2b1a2e8e56b78c89a9fc35)| Creating POST and PUT endpoints to start/create a session and to end it  | necessary to launch a session including whiteboard to work collaboratively |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
