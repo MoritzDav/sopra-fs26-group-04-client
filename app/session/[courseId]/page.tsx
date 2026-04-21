@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import WhiteboardCanvas, { StrokeEvent } from "@/components/WhiteboardCanvas";
+import WhiteboardCanvas, { StrokeEvent, WhiteboardCanvasHandle } from "@/components/WhiteboardCanvas";
 import { ArrowLeft, MessageSquare, X } from "lucide-react";
 import { useUser } from "@/contexts/UserContext";
 import { getWhiteboardWebSocketUrl } from "@/utils/websocket";
@@ -17,6 +17,8 @@ export default function SessionPage() {
   const { user, isLoading } = useUser();
   const [chatOpen, setChatOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  // Ref to the teacher's whiteboard on the student side (for applying remote strokes)
+  const teacherBoardRef = useRef<WhiteboardCanvasHandle>(null);
 
   // Auth guard: only logged-in users allowed
   useEffect(() => {
@@ -36,6 +38,26 @@ export default function SessionPage() {
     ws.onclose = () => console.log("Whiteboard WebSocket closed");
     // Generic WebSocket error events don't carry useful info — log a warning instead of error
     ws.onerror = () => console.warn("Whiteboard WebSocket could not connect (backend WebSocket may not be running)");
+
+    // Handle incoming strokes from the teacher (#29)
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        // Skip messages we sent ourselves to avoid double-drawing
+        if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
+        teacherBoardRef.current?.applyRemoteStroke({
+          action: msg.action,
+          x: msg.x,
+          y: msg.y,
+          previousX: msg.previousX,
+          previousY: msg.previousY,
+          color: msg.color,
+          size: msg.size,
+        });
+      } catch (err) {
+        console.error("Failed to parse incoming stroke", err);
+      }
+    };
 
     return () => {
       ws.close();
@@ -137,7 +159,7 @@ export default function SessionPage() {
           boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
           background: "white",
         }}>
-          <WhiteboardCanvas readOnly fullHeight={false} label="Teacher's Whiteboard" />
+          <WhiteboardCanvas ref={teacherBoardRef} readOnly fullHeight={false} label="Teacher's Whiteboard" />
         </div>
 
         {/* Right: student's personal whiteboard (editable) */}

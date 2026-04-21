@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-// import { useApi } from "@/hooks/useApi";
+import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
 import { Button, Card, App } from "antd"
 import { PlusOutlined } from "@ant-design/icons";
@@ -13,6 +13,16 @@ interface Course {
     description: string;
     courseCode: string;
     teacher: string;
+    }
+
+// Response shape from backend GET /users/{id}/courses (CourseGetDTO)
+interface CourseGetDTO {
+    id: number;
+    title: string;
+    description: string;
+    courseCode: string;
+    pictureURL?: string;
+    teacherId: number;
     }
 
 {/*const courses = [
@@ -44,7 +54,7 @@ interface Course {
 
  export default function StudentDashboard() {
   const router = useRouter();
-  //const apiService = useApi();
+  const apiService = useApi();
   const params = useParams();
   const urlId = params.id;
   const { message } = App.useApp();
@@ -87,8 +97,23 @@ interface Course {
       return;
     }
 
-    // Placeholder — fetching enrolled courses is part of #29 branch
-    setCourses([]);
+    // Fetch student's enrolled courses from backend
+    (async () => {
+      try {
+        const data = await apiService.get<CourseGetDTO[]>(`/users/${user.id}/courses?role=STUDENT`);
+        setCourses(data.map((c) => ({
+          courseId: c.id,
+          title: c.title,
+          description: c.description ?? "",
+          courseCode: c.courseCode,
+          teacher: "", // teacher name not included in DTO yet
+        })));
+      } catch (err) {
+        if (err instanceof Error) {
+          console.error("Failed to load enrolled courses:", err.message);
+        }
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isLoading, urlId, router]);
 
