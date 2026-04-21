@@ -21,7 +21,7 @@ const Profile: React.FC = () => {
     const params = useParams();
     const id = params.id;
     const apiService = useApi();
-    const { user, clearUser } = useUser();
+    const { user, setUser, clearUser } = useUser();
 
     const firstName = user?.firstName || "";
     const lastName = user?.lastName || "";
@@ -63,10 +63,10 @@ const Profile: React.FC = () => {
         try {
             await apiService.put(`/users/${id}`, {
                 [field]: editValues[field as keyof typeof editValues],
-            });
+            }, user?.token ?? undefined);
+            setUser({ ...user!, [field]: editValues[field as keyof typeof editValues] });
             setSuccess(`${field} updated successfully!`);
             setEditingField(null);
-            // TODO: update localStorage or use provider in the future
         } catch (err) {
             if (err instanceof Error) {
                 setError(err.message);
@@ -84,7 +84,7 @@ const Profile: React.FC = () => {
             await apiService.put(`/users/${id}`, {
                 oldPassword: passwordValues.oldPassword,
                 newPassword: passwordValues.newPassword,
-            });
+            }, user?.token ?? undefined);
             // Clear user state + localStorage and redirect to login after password change
             clearUser();
             router.push("/login");

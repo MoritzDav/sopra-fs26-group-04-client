@@ -97,11 +97,14 @@ export class ApiService {
    * @param data - The payload to update.
    * @returns JSON data of type T.
    */
-  public async put<T>(endpoint: string, data: unknown): Promise<T> {
+  public async put<T>(endpoint: string, data: unknown, token?: string): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
     const res = await fetch(url, {
       method: "PUT",
-      headers: this.defaultHeaders,
+      headers: {
+        ...(this.defaultHeaders as Record<string, string>),
+        ...(token ? { Authorization: token } : {}),
+      },
       body: JSON.stringify(data),
     });
     return this.processResponse<T>(
