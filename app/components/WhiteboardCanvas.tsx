@@ -34,16 +34,29 @@ const PRESET_COLORS = [
   "#10B981", "#8B5CF6", "#EC4899", "#FFFFFF",
 ];
 
+// Stroke data emitted via onStroke — matches backend WhiteboardDrawingMessage shape
+export interface StrokeEvent {
+  action: "draw" | "clear";
+  x?: number;
+  y?: number;
+  previousX?: number;
+  previousY?: number;
+  color?: string;
+  size?: number;
+}
+
 interface WhiteboardCanvasProps {
   readOnly?: boolean;   // disables drawing + hides toolbar
   fullHeight?: boolean; // if false, fills parent instead of 100vh (for split view)
   label?: string;       // optional header label shown above the canvas
+  onStroke?: (stroke: StrokeEvent) => void;  // fires on each draw segment (for broadcasting via WebSocket)
 }
 
 const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   readOnly = false,
   fullHeight = true,
   label,
+  onStroke,
 }) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -268,16 +281,32 @@ const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx || !lastPoint.current) return;
     const pt = { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY };
+    const strokeColor = tool === "eraser" ? "#FFFFFF" : color;
+    const strokeSize = tool === "eraser" ? thickness * 3 : thickness;
     ctx.beginPath();
     ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
     ctx.lineTo(pt.x, pt.y);
-    ctx.strokeStyle = tool === "eraser" ? "#FFFFFF" : color;
-    ctx.lineWidth = tool === "eraser" ? thickness * 3 : thickness;
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = strokeSize;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.stroke();
+
+    // Emit stroke event for WebSocket broadcasting (teacher side)
+    if (onStroke) {
+      onStroke({
+        action: "draw",
+        x: pt.x,
+        y: pt.y,
+        previousX: lastPoint.current.x,
+        previousY: lastPoint.current.y,
+        color: strokeColor,
+        size: strokeSize,
+      });
+    }
+
     lastPoint.current = pt;
-  }, [tool, color, thickness]);
+  }, [tool, color, thickness, onStroke]);
 
   const stopDrawing = useCallback(() => {
     if (isDrawing.current) {
@@ -300,7 +329,9 @@ const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     setTextElements([]);
     setEditingId(null);
     takeSnapshot();
-  }, [takeSnapshot]);
+    // Broadcast clear event to other participants via WebSocket
+    if (onStroke) onStroke({ action: "clear" });
+  }, [takeSnapshot, onStroke]);
 
   // ── Formatting ─────────────────────────────────────────────────────────────
   const applyFormat = useCallback((e: React.MouseEvent, command: string) => {

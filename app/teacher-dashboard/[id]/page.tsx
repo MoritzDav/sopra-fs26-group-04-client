@@ -12,11 +12,21 @@ interface Course {
     courseId: number;
     title: string;
     description: string;
-    courseCode: number;
+    courseCode: string;
     teacher: string;
     students: number;
     sessions: number;
     pictureURL?: string; //background image
+    }
+
+// Response shape from backend POST /courses (CourseGetDTO)
+interface CourseGetDTO {
+    id: number;
+    title: string;
+    description: string;
+    courseCode: string;
+    pictureURL?: string;
+    teacherId: number;
     }
 {/*
 const courses = [
@@ -49,7 +59,7 @@ const courses = [
   const { user, isLoading, clearUser } = useUser();
   const token = user?.token ?? null;
   const [courses, setCourses] = useState<Course[]>([]); //list of all courses the user is part of
-  const [sharedCourseCode, setSharedCourseCode] = useState<number | null>(null);
+  const [sharedCourseCode, setSharedCourseCode] = useState<string | null>(null);
 
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createTitle, setCreateTitle] = useState("")
@@ -101,14 +111,28 @@ const courses = [
       return;
     }
 
-    // Load courses (placeholder until backend endpoint exists)
-    //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`);
-    //setCourses(courseData);
-    setCourses([
-      { courseId: 1, title: "Computer Science 101", description: "Intro to CS", courseCode: 123, teacher: "Prof. Smith", students: 3, sessions: 5 },
-      { courseId: 2, title: "Mathematics II", description: "Advanced Math", courseCode: 456, teacher: "Prof. Johnson", students: 6, sessions: 10 },
-    ]);
-  }, [user, isLoading, urlId, router, message]);
+    // Fetch teacher's courses from backend
+    (async () => {
+      try {
+        const data = await apiService.get<CourseGetDTO[]>(`/users/${user.id}/courses?role=TEACHER`);
+        setCourses(data.map((c) => ({
+          courseId: c.id,
+          title: c.title,
+          description: c.description ?? "",
+          courseCode: c.courseCode,
+          teacher: user?.firstName ?? "",
+          students: 0,
+          sessions: 0,
+          pictureURL: c.pictureURL,
+        })));
+      } catch (err) {
+        if (err instanceof Error) {
+          console.error("Failed to load courses:", err.message);
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isLoading, urlId, router]);
 
   //delete course
   const handleDelete = (e: React.MouseEvent, courseId: number) => {
@@ -292,22 +316,44 @@ const courses = [
           <Modal
             open={createModalOpen}
             onCancel={() => setCreateModalOpen(false)}
-            onOk={() => {
-              const newCourse: Course = {
-                courseId: Date.now(),
-                title: createTitle,
-                description: createDescription,
-                courseCode: Math.floor(Math.random() * 900 + 100),
-                teacher: user?.firstName ?? "",
-                students: 0,
-                sessions: 0,
-                pictureURL: createPictureURL || undefined,
+            onOk={async () => {
+              if (!createTitle.trim()) {
+                message.error("Course title is required.");
+                return;
               }
-              setCourses([...courses, newCourse])
-              setCreateTitle("")
-              setCreateDescription("")
-              setCreatePictureURL("")
-              setCreateModalOpen(false)
+              if (!user?.id) {
+                message.error("You must be logged in.");
+                return;
+              }
+              try {
+                // Call backend to create the course and get a real courseCode back
+                const created = await apiService.post<CourseGetDTO>("/courses", {
+                  title: createTitle,
+                  description: createDescription,
+                  pictureURL: createPictureURL || null,
+                  teacherId: Number(user.id),
+                });
+                const newCourse: Course = {
+                  courseId: created.id,
+                  title: created.title,
+                  description: created.description,
+                  courseCode: created.courseCode,
+                  teacher: user?.firstName ?? "",
+                  students: 0,
+                  sessions: 0,
+                  pictureURL: created.pictureURL,
+                };
+                setCourses([...courses, newCourse]);
+                setCreateTitle("");
+                setCreateDescription("");
+                setCreatePictureURL("");
+                setCreateModalOpen(false);
+                message.success(`Course created! Code: ${created.courseCode}`);
+              } catch (err) {
+                if (err instanceof Error) {
+                  message.error(`Failed to create course: ${err.message}`);
+                }
+              }
             }}
             title="Create Course"
           >
