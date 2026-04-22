@@ -44,7 +44,7 @@ export default function JoinCourse() {
 // Send course code to backend join endpoint
 
     try {
-      const response = await apiService.post<Course>("/courses/join", {
+      await apiService.post<Course>("/courses/join", {
         courseCode: courseCode.trim(),
       });
       const userId = localStorage.getItem("userId")?.replace(/"/g, "");

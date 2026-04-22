@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import WhiteboardCanvas from "@/components/WhiteboardCanvas";
+import WhiteboardCanvas, { StrokeEvent } from "@/components/WhiteboardCanvas";
 import { ArrowLeft, MessageSquare, X } from "lucide-react";
+import { useUser } from "@/contexts/UserContext";
+import { getWhiteboardWebSocketUrl } from "@/utils/websocket";
 
 // Session page showing split-view whiteboards:
 // Left: teacher's whiteboard (read-only)
@@ -11,24 +13,53 @@ import { ArrowLeft, MessageSquare, X } from "lucide-react";
 export default function SessionPage() {
   const router = useRouter();
   const params = useParams();
-  const courseId = params.courseId;
-  const [role, setRole] = useState<string>("");
+  const courseId = params.courseId as string;
+  const { user, isLoading } = useUser();
   const [chatOpen, setChatOpen] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   // Auth guard: only logged-in users allowed
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token || token === '""') {
+    if (isLoading) return;
+    if (!user || !user.token) {
       router.push("/login");
-      return;
     }
-    const storedRole = localStorage.getItem("role")?.replace(/"/g, "") ?? "";
-    setRole(storedRole);
-  }, [router]);
+  }, [user, isLoading, router]);
+
+  // Establish WebSocket connection to the whiteboard endpoint for this course
+  useEffect(() => {
+    if (!courseId || !user) return;
+    const ws = new WebSocket(getWhiteboardWebSocketUrl(courseId));
+    wsRef.current = ws;
+
+    ws.onopen = () => console.log("Whiteboard WebSocket connected");
+    ws.onclose = () => console.log("Whiteboard WebSocket closed");
+    // Generic WebSocket error events don't carry useful info — log a warning instead of error
+    ws.onerror = () => console.warn("Whiteboard WebSocket could not connect (backend WebSocket may not be running)");
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [courseId, user]);
+
+  // Teacher: send stroke to backend for broadcasting (#30)
+  const handleTeacherStroke = useCallback((stroke: StrokeEvent) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      ...stroke,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+  }, [courseId, user?.id]);
+
+  const role = user?.role ?? "";
 
   // Teachers see their full-screen whiteboard; students see the split view
   if (role === "TEACHER") {
-    return <WhiteboardCanvas label="Teacher's Whiteboard" />;
+    return <WhiteboardCanvas label="Teacher's Whiteboard" onStroke={handleTeacherStroke} />;
   }
 
   return (

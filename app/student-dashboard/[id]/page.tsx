@@ -11,7 +11,7 @@ interface Course {
     courseId: number;
     title: string;
     description: string;
-    courseCode: number;
+    courseCode: string;
     teacher: string;
     }
 
@@ -87,14 +87,10 @@ interface Course {
       return;
     }
 
-    // Load courses (placeholder until backend endpoint exists)
-    //const courseData = await apiService.get<Course[]>(`/users/${id}/courses`);
-    //setCourses(courseData);
-    setCourses([
-      { courseId: 1, title: "Computer Science 101", description: "Intro to CS", courseCode: 123, teacher: "Prof. Smith" },
-      { courseId: 2, title: "Mathematics II", description: "Advanced Math", courseCode: 456, teacher: "Prof. Johnson" },
-    ]);
-  }, [user, isLoading, urlId, router, message]);
+    // Placeholder — fetching enrolled courses is part of #29 branch
+    setCourses([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isLoading, urlId, router]);
 
   return (
     <div style={{ width: "100%", minHeight: "100vh" }}>
