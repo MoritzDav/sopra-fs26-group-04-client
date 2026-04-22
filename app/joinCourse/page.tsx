@@ -46,8 +46,9 @@ export default function JoinCourse() {
     try {
       const code = encodeURIComponent(courseCode.trim());
       await apiService.post(
-        `/courses/${code}/enroll?studentId=${user.id}`,
-        {},
+          `/courses/${code}/enroll`,
+          {},
+          user.token ?? undefined,
       );
       router.push(`/student-dashboard/${user.id}`);
 

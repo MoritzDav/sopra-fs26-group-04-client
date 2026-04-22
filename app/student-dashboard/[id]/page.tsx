@@ -100,8 +100,7 @@ interface CourseGetDTO {
     // Fetch student's enrolled courses from backend
     (async () => {
       try {
-        const data = await apiService.get<CourseGetDTO[]>(`/users/${user.id}/courses?role=STUDENT`);
-        setCourses(data.map((c) => ({
+          const data = await apiService.get<CourseGetDTO[]>(`/users/${user.id}/courses`, user.token ?? undefined);        setCourses(data.map((c) => ({
           courseId: c.id,
           title: c.title,
           description: c.description ?? "",
