@@ -3,17 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
+import { useUser } from "@/contexts/UserContext";
 import { ArrowLeft, KeyRound } from "lucide-react";
-
-interface Course {
-  id: number;
-  title: string;
-  courseCode: string;
-}
 
 export default function JoinCourse() {
   const router = useRouter();
   const apiService = useApi();
+  const { user, isLoading } = useUser();
   const [courseCode, setCourseCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,12 +17,11 @@ export default function JoinCourse() {
 // Auth guard: redirect to login if user is not authenticated
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token || token === '""') { //if user not logged in
+    if (isLoading) return;
+    if (!user || !user.token) {
       router.push("/login");
-      return;
     }
-  },  [router]);
+  }, [user, isLoading, router]);
 
 // Handle form submission: validate input, send join request to backend
 
@@ -38,17 +33,23 @@ export default function JoinCourse() {
       setError("Please enter a course code.");
       return;
     }
+    if (!user?.id) {
+      setError("You must be logged in.");
+      return;
+    }
 
     setLoading(true);
 
-// Send course code to backend join endpoint
+// Send course code to backend enroll endpoint:
+// POST /courses/{courseCode}/enroll?studentId={id}
 
     try {
-      await apiService.post<Course>("/courses/join", {
-        courseCode: courseCode.trim(),
-      });
-      const userId = localStorage.getItem("userId")?.replace(/"/g, "");
-      router.push(`/student-dashboard/${userId}`);
+      const code = encodeURIComponent(courseCode.trim());
+      await apiService.post(
+        `/courses/${code}/enroll?studentId=${user.id}`,
+        {},
+      );
+      router.push(`/student-dashboard/${user.id}`);
 
 // Handle different error cases: invalid code (404), already enrolled (409)
 

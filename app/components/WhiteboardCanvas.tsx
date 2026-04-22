@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import {
   Pencil, Eraser, Trash2, ArrowLeft, Type,
   Bold, Italic, Underline, Undo2, Redo2,
@@ -45,6 +45,11 @@ export interface StrokeEvent {
   size?: number;
 }
 
+// Imperative handle that parent can use to inject remote strokes (for read-only student view)
+export interface WhiteboardCanvasHandle {
+  applyRemoteStroke: (stroke: StrokeEvent) => void;
+}
+
 interface WhiteboardCanvasProps {
   readOnly?: boolean;   // disables drawing + hides toolbar
   fullHeight?: boolean; // if false, fills parent instead of 100vh (for split view)
@@ -52,12 +57,12 @@ interface WhiteboardCanvasProps {
   onStroke?: (stroke: StrokeEvent) => void;  // fires on each draw segment (for broadcasting via WebSocket)
 }
 
-const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
+const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(({
   readOnly = false,
   fullHeight = true,
   label,
   onStroke,
-}) => {
+}, ref) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -332,6 +337,29 @@ const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     // Broadcast clear event to other participants via WebSocket
     if (onStroke) onStroke({ action: "clear" });
   }, [takeSnapshot, onStroke]);
+
+  // Expose method for parent to inject remote strokes (used for live-share student view)
+  useImperativeHandle(ref, () => ({
+    applyRemoteStroke: (stroke: StrokeEvent) => {
+      const ctx = canvasRef.current?.getContext("2d");
+      if (!ctx || !canvasRef.current) return;
+      if (stroke.action === "clear") {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, canvasRef.current.width / dprRef.current, canvasRef.current.height / dprRef.current);
+        return;
+      }
+      if (stroke.action === "draw" && stroke.previousX != null && stroke.previousY != null && stroke.x != null && stroke.y != null) {
+        ctx.beginPath();
+        ctx.moveTo(stroke.previousX, stroke.previousY);
+        ctx.lineTo(stroke.x, stroke.y);
+        ctx.strokeStyle = stroke.color ?? "#1A1A2E";
+        ctx.lineWidth = stroke.size ?? 4;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke();
+      }
+    },
+  }), []);
 
   // ── Formatting ─────────────────────────────────────────────────────────────
   const applyFormat = useCallback((e: React.MouseEvent, command: string) => {
@@ -725,7 +753,9 @@ const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       </div>
     </div>
   );
-};
+});
+
+WhiteboardCanvas.displayName = "WhiteboardCanvas";
 
 // ── Style helpers ──────────────────────────────────────────────────────────────
 
