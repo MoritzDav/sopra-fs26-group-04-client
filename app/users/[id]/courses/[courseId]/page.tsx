@@ -44,8 +44,7 @@ export default function CoursePage() {
     // Fetch sessions for this course from backend
     (async () => {
       try {
-        const data = await apiService.get<SessionGetDTO[]>(`/courses/${courseId}/sessions`);
-        setSessions(
+        const data = await apiService.get<SessionGetDTO[]>(`/courses/${courseId}/sessions`, user?.token ?? undefined);        setSessions(
           data.map((s) => ({
             id: s.sessionId,
             title: s.title ?? `Session #${s.sessionId}`,

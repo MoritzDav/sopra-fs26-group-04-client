@@ -114,8 +114,9 @@ const courses = [
     // Fetch teacher's courses from backend
     (async () => {
       try {
-        const data = await apiService.get<CourseGetDTO[]>(`/users/${user.id}/courses?role=TEACHER`);
-        setCourses(data.map((c) => ({
+          const data = await apiService.get<CourseGetDTO[]>
+          (`/users/${user.id}/courses`, user.token ?? undefined);
+          setCourses(data.map((c) => ({
           courseId: c.id,
           title: c.title,
           description: c.description ?? "",
@@ -234,11 +235,6 @@ const courses = [
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
               <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>{course.description}</p>
-              <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>
-              <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
-                {course.students} students • {course.sessions} sessions
-                </span>
-              </p>
               <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
                 Code: {course.courseCode}
               </span>
@@ -332,7 +328,8 @@ const courses = [
                   description: createDescription,
                   pictureURL: createPictureURL || null,
                   teacherId: Number(user.id),
-                });
+                }, user.token ?? undefined);
+
                 const newCourse: Course = {
                   courseId: created.id,
                   title: created.title,
