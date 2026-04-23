@@ -110,6 +110,7 @@ interface CourseGetDTO {
       } catch (err) {
         if (err instanceof Error) {
           console.error("Failed to load enrolled courses:", err.message);
+          message.error("Failed to load enrolled courses: " + err.message)
         }
       }
     })();

@@ -142,6 +142,7 @@ const courses = [
       } catch (err) {
         if (err instanceof Error) {
           console.error("Failed to load courses:", err.message);
+          message.error("Failed to load courses: " + err.message)
         }
       }
     })();
@@ -364,6 +365,7 @@ const courses = [
                 setCreatePictureURL("");
                 setCreateModalOpen(false);
                 message.success(`Course created! Code: ${created.courseCode}`);
+                router.push(`/users/${user.id}/courses/${created.id}`);
               } catch (err) {
                 if (err instanceof Error) {
                   message.error(`Failed to create course: ${err.message}`);

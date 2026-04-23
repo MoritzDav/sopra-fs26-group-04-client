@@ -48,13 +48,14 @@ export default function CoursePage() {
           data.map((s) => ({
             id: s.sessionId,
             title: s.title ?? `Session #${s.sessionId}`,
-            status: s.active ? "live" : "ended",
+            status: (s.active ? "live" : "ended") as Session["status"],
             startedAt: s.active ? "Active" : "Ended",
           }))
         );
       } catch (err) {
         if (err instanceof Error) {
           console.error("Failed to load sessions:", err.message);
+          message.error("Failed to load sessions: " + err.message);
         }
       }
     })();
