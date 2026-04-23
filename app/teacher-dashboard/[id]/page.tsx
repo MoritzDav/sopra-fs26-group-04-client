@@ -401,6 +401,21 @@ const courses = [
               <img src={createPictureURL} alt="preview" style={{ width: "100%", marginTop: 8, borderRadius: 8 }} />
             )}
           </Modal>
+            {/*share via outlook*/}
+            <Modal
+                open={qrModalOpen}
+                onCancel={() => setQrModalOpen(false)}
+                footer={null}
+                title={`Course Code: ${sharedCourseCode}`}
+            >
+                {qrCode && <img src={qrCode} alt="QR Code" style={{ width: "100%" }} />}
+                <a
+                    href={`mailto:?subject=Join my course&body=Use code ${sharedCourseCode} to join! Link: https://sopra-fs26-group-04-client.vercel.app/joinCourse?code=${sharedCourseCode}`}
+                    style={{ display: "block", marginTop: 12, textAlign: "center" }}
+                >
+                    <Button icon={<ShareAltOutlined />}>Share via Outlook</Button>
+                </a>
+            </Modal>
         </div>
       </div>
     </div>
