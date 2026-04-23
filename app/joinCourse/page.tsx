@@ -1,16 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
 import { ArrowLeft, KeyRound } from "lucide-react";
 
-export default function JoinCourse() {
+export default function JoinCoursePage() {
+  return (
+      <Suspense>
+        <JoinCourse />
+      </Suspense>
+  )
+}
+
+function JoinCourse() {
   const router = useRouter();
   const apiService = useApi();
   const { user, isLoading } = useUser();
-  const [courseCode, setCourseCode] = useState("");
+  const searchParams = useSearchParams()
+  const [courseCode, setCourseCode] = useState(searchParams.get("code") ?? "")
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -20,6 +29,10 @@ export default function JoinCourse() {
     if (isLoading) return;
     if (!user || !user.token) {
       router.push("/login");
+      return
+    }
+    if (user.role === "TEACHER") {
+      router.push(`/teacher-dashboard/${user.id}?error=no-join`)
     }
   }, [user, isLoading, router]);
 
@@ -70,7 +83,7 @@ export default function JoinCourse() {
   };
 
 // Render join course card with input field and submit button
-
+  if (isLoading || user?.role === "TEACHER") return null
   return (
       <div className="login-container">
         <div className="profile-card">
