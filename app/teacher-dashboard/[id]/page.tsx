@@ -58,7 +58,7 @@ function TeacherDashboardInner() {
   const apiService = useApi();
   const { message, modal } = App.useApp()
   const { user, isLoading, clearUser } = useUser();
-  const token = user?.token ?? null;
+  const token = user?.token ?? undefined;
   const [courses, setCourses] = useState<Course[]>([]); //list of all courses the user is part of
   const [sharedCourseCode, setSharedCourseCode] = useState<string | null>(null);
   const searchParams = useSearchParams();
