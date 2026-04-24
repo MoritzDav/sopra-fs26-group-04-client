@@ -1,12 +1,13 @@
 "use client"; //needed for useState, useEffect
 
-import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useEffect, useState, useRef, Suspense } from "react";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 // import { useApi } from "@/hooks/useApi";
 import { Button, Card, App, Modal, Input, Upload } from "antd"
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined, UploadOutlined } from "@ant-design/icons";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
+import { getApiDomain } from "@/utils/domain"
 
 interface Course {
     courseId: number;
@@ -50,16 +51,17 @@ const courses = [
   },
 ]; */}
 
- export default function TeacherDashboard() {
+function TeacherDashboardInner() {
   const router = useRouter();
   const params = useParams();
   const urlId = params.id;
   const apiService = useApi();
   const { message, modal } = App.useApp()
   const { user, isLoading, clearUser } = useUser();
-  const token = user?.token ?? null;
+  const token = user?.token ?? undefined;
   const [courses, setCourses] = useState<Course[]>([]); //list of all courses the user is part of
   const [sharedCourseCode, setSharedCourseCode] = useState<string | null>(null);
+  const searchParams = useSearchParams();
 
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createTitle, setCreateTitle] = useState("")
@@ -75,6 +77,8 @@ const courses = [
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
 
+  const errorShown = useRef(false)
+
   const gradients = [
     "linear-gradient(135deg, #667eea, #764ba2)",
     "linear-gradient(135deg, #f093fb, #f5576c)",
@@ -82,6 +86,15 @@ const courses = [
     "linear-gradient(135deg, #43e97b, #38f9d7)",
     "linear-gradient(135deg, #fa709a, #fee140)",
   ];
+
+  //Error message when a teacher tries to visit /joinCourses
+  useEffect(() => {
+     if (searchParams.get("error") === "no-join" && !errorShown.current) {
+         errorShown.current = true
+         message.error("Teachers cannot join courses!")
+         router.replace(`/teacher-dashboard/${user?.id}`)
+     }
+  }, [searchParams])
 
   useEffect(() => {
     // Wait for provider to hydrate before checking auth
@@ -129,6 +142,7 @@ const courses = [
       } catch (err) {
         if (err instanceof Error) {
           console.error("Failed to load courses:", err.message);
+          message.error("Failed to load courses: " + err.message)
         }
       }
     })();
@@ -146,7 +160,7 @@ const courses = [
       okButtonProps: { danger: true },
       cancelText: "Cancel",
       onOk: async () => {
-        //await apiService.delete(`/courses/${courseId}`, token);
+        await apiService.delete(`/courses/${courseId}`, token);
         setCourses(courses.filter(c => c.courseId !== courseId));
       }
     });
@@ -156,9 +170,13 @@ const courses = [
     e.stopPropagation();
     const course = courses.find(c => c.courseId === _courseId)
     setSharedCourseCode(course?.courseCode ?? null)
-    //const qrCode = await apiService.get<string>(`/courses/${courseId}/qr`); //da noch keine kurse erstellt werden können hier erst ein placeholder
-    //setQrCode(qrCode);
-    setQrCode("https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=test");
+    const response = await fetch(`${getApiDomain()}/courses/${_courseId}/qr`, {headers: { Authorization: token ?? "" }})
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    setQrCode(url)
+    //const qrCode = await apiService.get<string>(`/courses/${_courseId}/qr`, token ?? undefined);
+    //setQrCode(`${getApiDomain()}/courses/${_courseId}/qr`);
+    //setQrCode("https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=test");
     setQrModalOpen(true);
   }
 
@@ -170,12 +188,8 @@ const courses = [
       setEditPictureURL(course?.pictureURL ?? "")
       setEditingCourseId(_courseId)
       setEditModalOpen(true)
-      //await apiService.put(`/courses/${editingCourseId}`, {
-          //title: editTitle,
-          //description: editDescription,
-          //pictureURL: editPictureURL || null,
-      //}, token)
   }
+
 
   return (
     <div style={{ width: "100%", minHeight: "100vh" }}>
@@ -254,21 +268,16 @@ const courses = [
             <p style={{ color: "gray" }}>Create New Course</p>
           </Card>
 
-          {/*Display QR to share course*/}
-          <Modal
-            open={qrModalOpen}
-            onCancel={() => setQrModalOpen(false)}
-            footer={null}
-            title={`Course Code: ${sharedCourseCode}`}
-          >
-            {qrCode && <img src={qrCode} alt="QR Code" style={{ width: "100%" }} />}
-          </Modal>
-
           {/*Edit course details*/}
           <Modal
             open={editModalOpen}
             onCancel={() => setEditModalOpen(false)}
-            onOk={() => {
+            onOk={async () => {
+                await apiService.put(`/courses/${editingCourseId}`, {
+                title: editTitle,
+                description: editDescription,
+                pictureURL: editPictureURL || null,
+            }, token ?? undefined)
               setCourses(courses.map(c =>
                 c.courseId === editingCourseId
                   ? { ...c, title: editTitle, description: editDescription, pictureURL: editPictureURL || undefined }
@@ -346,6 +355,7 @@ const courses = [
                 setCreatePictureURL("");
                 setCreateModalOpen(false);
                 message.success(`Course created! Code: ${created.courseCode}`);
+                router.push(`/users/${user.id}/courses/${created.id}`);
               } catch (err) {
                 if (err instanceof Error) {
                   message.error(`Failed to create course: ${err.message}`);
@@ -383,8 +393,31 @@ const courses = [
               <img src={createPictureURL} alt="preview" style={{ width: "100%", marginTop: 8, borderRadius: 8 }} />
             )}
           </Modal>
+            {/*share course via code, qr code, outlook*/}
+            <Modal
+                open={qrModalOpen}
+                onCancel={() => setQrModalOpen(false)}
+                footer={null}
+                title={`Course Code: ${sharedCourseCode}`}
+            >
+                {qrCode && <img src={qrCode} alt="QR Code" style={{ width: "100%" }} />}
+                <a
+                    href={`mailto:?subject=Join my course&body=Use code ${sharedCourseCode} to join! Link: https://sopra-fs26-group-04-client.vercel.app/joinCourse?code=${sharedCourseCode}`}
+                    style={{ display: "block", marginTop: 12, textAlign: "center" }}
+                >
+                    <Button icon={<ShareAltOutlined />}>Share via Outlook</Button>
+                </a>
+            </Modal>
         </div>
       </div>
     </div>
   );
+}
+
+export default function TeacherDashboard() {
+    return (
+        <Suspense>
+            <TeacherDashboardInner />
+        </Suspense>
+    );
 }
