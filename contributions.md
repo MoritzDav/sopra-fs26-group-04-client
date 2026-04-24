@@ -94,8 +94,8 @@ reason).
 |                    | [22.04.]   | [75ca17c](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/75ca17cf05d60aaf7b3943d9ac5d69883edb5a95) and some testings to get the score up [e55b737](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/e55b7371321f15e2f95c959a2f27614757f51fae)| Setting up endpoints such that teacher/student sees an overview of all courses they're currently enrolled in in the dashboard | necessary to be able to click on courses in order to then join a session |
 | **[@Meimira](https://github.com/Meimira)** | [24.04]   | [2767b3f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/58/changes/2767b3ff47bc0e81950708e565f1c6f9e7cb7325) | Courses can now be shared via Outlook and the redirection and security is now implemented for when a course is created.| Sharing via outlook adds an additional usability. Security is necessary so only logged in students can join courses. |
 |                    | [24.04]   | [2767b3f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/58/changes/2767b3ff47bc0e81950708e565f1c6f9e7cb7325) | Implementation of the live chat between all participants inside a session. | Users need the chat to communicate during a session. Only with the chat, our WebApp can be used remotely. |
-| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | 22.04   | f6a4ca1(https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/f6a4ca18a375e96d94bb03846085d125afe3f68a) | Implemented chat messaging functionality with WebSocket support | Part of a whiteboard |
+|                    | 23.04   | f4f76c3(https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/f4f76c31d479e419a9b88a78f26d3f6660c31d34) |  unit tests for course credential updates | tests for main functionalities |
 
 ---
 
