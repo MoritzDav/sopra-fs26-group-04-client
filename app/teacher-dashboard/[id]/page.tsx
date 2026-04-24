@@ -1,6 +1,6 @@
 "use client"; //needed for useState, useEffect
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 // import { useApi } from "@/hooks/useApi";
 import { Button, Card, App, Modal, Input, Upload } from "antd"
@@ -51,7 +51,7 @@ const courses = [
   },
 ]; */}
 
- export default function TeacherDashboard() {
+function TeacherDashboardInner() {
   const router = useRouter();
   const params = useParams();
   const urlId = params.id;
@@ -268,16 +268,6 @@ const courses = [
             <p style={{ color: "gray" }}>Create New Course</p>
           </Card>
 
-          {/*Display QR to share course*/}
-          <Modal
-            open={qrModalOpen}
-            onCancel={() => setQrModalOpen(false)}
-            footer={null}
-            title={`Course Code: ${sharedCourseCode}`}
-          >
-            {qrCode && <img src={qrCode} alt="QR Code" style={{ width: "100%" }} />}
-          </Modal>
-
           {/*Edit course details*/}
           <Modal
             open={editModalOpen}
@@ -403,7 +393,7 @@ const courses = [
               <img src={createPictureURL} alt="preview" style={{ width: "100%", marginTop: 8, borderRadius: 8 }} />
             )}
           </Modal>
-            {/*share via outlook*/}
+            {/*share course via code, qr code, outlook*/}
             <Modal
                 open={qrModalOpen}
                 onCancel={() => setQrModalOpen(false)}
@@ -422,4 +412,12 @@ const courses = [
       </div>
     </div>
   );
+}
+
+export default function TeacherDashboard() {
+    return (
+        <Suspense>
+            <TeacherDashboardInner />
+        </Suspense>
+    );
 }
