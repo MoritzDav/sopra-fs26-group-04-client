@@ -26,8 +26,8 @@ function SessionPageInner() {
   const params = useParams();
   const courseId = params.courseId as string;
   const searchParams = useSearchParams();
-  const sessionId = searchParams.get("sessionId"); // sessionId aus URL (?sessionId=...)
-  const { user, isLoading } = useUser();
+  const sessionId = searchParams.get("sessionId");
+  const sessionTitle = searchParams.get("title") ?? `Session #${sessionId ?? ""}`;  const { user, isLoading } = useUser();
   const apiService = useApi();
   const [chatOpen, setChatOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -41,6 +41,34 @@ function SessionPageInner() {
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   // Teacher's userId – fetched from GET /courses/{courseId} (no auth required)
   const [teacherUserId, setTeacherUserId] = useState<number | undefined>(undefined);
+
+    // Split ratio between teacher's whiteboard (left) and personal whiteboard (right)
+    const [splitRatio, setSplitRatio] = useState(0.5);
+    const splitContainerRef = useRef<HTMLDivElement | null>(null);
+    const isDraggingSplit = useRef(false);
+    const [dividerHover, setDividerHover] = useState(false);
+
+    // Listen for mouse movements globally while dragging the divider
+    useEffect(() => {
+        const onMouseMove = (e: MouseEvent) => {
+            if (!isDraggingSplit.current || !splitContainerRef.current) return;
+            const rect = splitContainerRef.current.getBoundingClientRect();
+            const ratio = (e.clientX - rect.left) / rect.width;
+            // Clamp between 10% and 90% so neither side collapses entirely
+            setSplitRatio(Math.min(0.9, Math.max(0.1, ratio)));
+        };
+        const onMouseUp = () => {
+            isDraggingSplit.current = false;
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+        };
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mouseup", onMouseUp);
+        return () => {
+            window.removeEventListener("mousemove", onMouseMove);
+            window.removeEventListener("mouseup", onMouseUp);
+        };
+    }, []);
 
   // Auth guard: only logged-in users allowed
   useEffect(() => {
@@ -179,10 +207,10 @@ function SessionPageInner() {
           >
             <ArrowLeft size={14} /> Leave Session
           </button>
-          <div style={{ fontSize: "15px", fontWeight: 600, color: "#1A1A2E" }}>
-            Course Session #{courseId}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div style={{ fontSize: "15px", fontWeight: 600, color: "#1A1A2E" }}>
+                {sessionTitle}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <span style={{ fontSize: "12px", color: "#9CA3AF" }}>Live</span>
             <button
               onClick={() => setChatOpen(true)}
@@ -376,7 +404,7 @@ function SessionPageInner() {
           <ArrowLeft size={14} /> Leave Session
         </button>
         <div style={{ fontSize: "15px", fontWeight: 600, color: "#1A1A2E" }}>
-          Course Session #{courseId}
+          {sessionTitle}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <span style={{ fontSize: "12px", color: "#9CA3AF" }}>Live</span>
@@ -401,37 +429,83 @@ function SessionPageInner() {
         </div>
       </div>
 
-      {/* ── Split view: teacher (left) + student (right) ── */}
-      <div style={{
-        display: "flex",
-        flex: 1,
-        overflow: "hidden",
-        gap: "16px",
-        padding: "16px",
-        background: "rgba(0,0,0,0.03)",
-      }}>
-        {/* Left: teacher's whiteboard (read-only) */}
-        <div style={{
-          flex: 1,
-          overflow: "hidden",
-          borderRadius: "12px",
-          boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
-          background: "white",
-        }}>
-         <WhiteboardCanvas ref={teacherBoardRef} readOnly fullHeight={false} label="Teacher's Whiteboard" />
-        </div>
+        {/* ── Split view: teacher (left) + student (right) with draggable divider ── */}
+        <div
+            ref={splitContainerRef}
+            style={{
+                display: "flex",
+                flex: 1,
+                overflow: "hidden",
+                padding: "16px",
+                background: "rgba(0,0,0,0.03)",
+            }}
+        >
+            {/* Left: teacher's whiteboard (read-only) */}
+            <div style={{
+                flex: splitRatio,
+                minWidth: 0,
+                overflow: "hidden",
+                borderRadius: "12px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+                background: "white",
+            }}>
+                <WhiteboardCanvas ref={teacherBoardRef} readOnly fullHeight={false} label="Teacher's Whiteboard" />
+            </div>
 
-        {/* Right: student's personal whiteboard (editable) */}
-        <div style={{
-          flex: 1,
-          overflow: "hidden",
-          borderRadius: "12px",
-          boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
-          background: "white",
-        }}>
-          <WhiteboardCanvas fullHeight={false} label="Your Personal Notes" />
+            {/* Draggable divider with thin line + rhombus indicator */}
+            <div
+                onMouseDown={() => {
+                    isDraggingSplit.current = true;
+                    document.body.style.cursor = "col-resize";
+                    document.body.style.userSelect = "none";
+                }}
+                onMouseEnter={() => setDividerHover(true)}
+                onMouseLeave={() => setDividerHover(false)}
+                style={{
+                    width: "20px",
+                    cursor: "col-resize",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    position: "relative",
+                }}
+                title="Drag to resize"
+            >
+                {/* Thin vertical line running the full height */}
+                <div style={{
+                    width: "1px",
+                    height: "100%",
+                    background: "rgba(91,108,255,0.3)",
+                }} />
+                {/* Rhombus (diamond) outline, fills on hover */}
+                <div style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%) rotate(45deg)",
+                    width: "12px",
+                    height: "12px",
+                    background: dividerHover ? "#5B6CFF" : "transparent",
+                    border: "2px solid #5B6CFF",
+                    borderRadius: "2px",
+                    boxShadow: dividerHover ? "0 2px 6px rgba(91,108,255,0.35)" : "none",
+                    transition: "background 0.15s, box-shadow 0.15s",
+                }} />
+            </div>
+
+            {/* Right: student's personal whiteboard (editable) */}
+            <div style={{
+                flex: 1 - splitRatio,
+                minWidth: 0,
+                overflow: "hidden",
+                borderRadius: "12px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+                background: "white",
+            }}>
+                <WhiteboardCanvas fullHeight={false} label="Your Personal Notes" />
+            </div>
         </div>
-      </div>
 
       {/* ── Chat overlay backdrop ── */}
       {chatOpen && (

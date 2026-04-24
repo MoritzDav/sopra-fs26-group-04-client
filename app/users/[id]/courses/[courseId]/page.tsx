@@ -34,6 +34,7 @@ export default function CoursePage() {
   const [starting, setStarting] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newSessionTitle, setNewSessionTitle] = useState("");
+  const [courseTitle, setCourseTitle] = useState<string>("");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -41,6 +42,13 @@ export default function CoursePage() {
       router.push("/login");
       return;
     }
+    // Fetch course info (title, etc.)
+    (async () => {
+      try {
+        const course = await apiService.get<{ title: string }>(`/courses/${courseId}`);
+        setCourseTitle(course.title);
+      } catch { /* non-critical */ }
+    })();
     // Fetch sessions for this course from backend
     (async () => {
       try {
@@ -64,7 +72,9 @@ export default function CoursePage() {
   const isTeacher = user?.role === "TEACHER";
 
   const handleJoinSession = (sessionId: number) => {
-    router.push(`/session/${courseId}?sessionId=${sessionId}`);
+    const session = sessions.find(s => s.id === sessionId);
+    const title = encodeURIComponent(session?.title ?? `Session #${sessionId}`);
+    router.push(`/session/${courseId}?sessionId=${sessionId}&title=${title}`);
   };
 
   // Opens modal to name the new session
@@ -101,8 +111,7 @@ export default function CoursePage() {
         ...prev,
       ]);
       setCreateModalOpen(false);
-      router.push(`/session/${courseId}?sessionId=${created.sessionId}`);
-    } catch (err) {
+      router.push(`/session/${courseId}?sessionId=${created.sessionId}&title=${encodeURIComponent(title)}`);    } catch (err) {
       if (err instanceof Error) {
         message.error(`Failed to start session: ${err.message}`);
       }
@@ -157,7 +166,7 @@ export default function CoursePage() {
         <div style={{ marginBottom: "12px" }}>
           <h2 style={{ margin: 0, color: "#1A1A2E" }}>Sessions</h2>
           <p style={{ margin: "2px 0 0 0", color: "#6B7280", fontSize: "13px" }}>
-            Course #{courseId} — {isTeacher ? "Manage your sessions" : "Join live sessions and view recordings"}
+            {courseTitle || `Course #${courseId}`} — {isTeacher ? "Manage your sessions" : "Join live sessions and view recordings"}
           </p>
         </div>
 

@@ -36,13 +36,14 @@ const PRESET_COLORS = [
 
 // Stroke data emitted via onStroke — matches backend WhiteboardDrawingMessage shape
 export interface StrokeEvent {
-  action: "draw" | "clear";
+  action: "draw" | "clear" | "snapshot";
   x?: number;
   y?: number;
   previousX?: number;
   previousY?: number;
   color?: string;
   size?: number;
+  dataURL?: string;
 }
 
 // Imperative handle that parent can use to inject remote strokes (for read-only student view)
@@ -160,6 +161,16 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setTextElements(entry.textElements);
   }, []);
 
+  const broadcastSnapshot = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !onStroke) return;
+    // Wait a tick so the canvas is fully redrawn before we snapshot it
+    setTimeout(() => {
+      const dataURL = canvas.toDataURL();
+      onStroke({ action: "snapshot", dataURL });
+    }, 30);
+  }, [onStroke]);
+
   const undo = useCallback(() => {
     if (historyIdxRef.current <= 0) return;
     setEditingId(null);
@@ -167,7 +178,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     historyIdxRef.current--;
     applyEntry(historyRef.current[historyIdxRef.current]);
     setHistState({ idx: historyIdxRef.current, len: historyRef.current.length });
-  }, [applyEntry]);
+    broadcastSnapshot();
+  }, [applyEntry, broadcastSnapshot]);
 
   const redo = useCallback(() => {
     if (historyIdxRef.current >= historyRef.current.length - 1) return;
@@ -176,7 +188,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     historyIdxRef.current++;
     applyEntry(historyRef.current[historyIdxRef.current]);
     setHistState({ idx: historyIdxRef.current, len: historyRef.current.length });
-  }, [applyEntry]);
+    broadcastSnapshot();
+  }, [applyEntry, broadcastSnapshot]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -194,38 +207,27 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   // ── Canvas init with DPR fix ───────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas) return;
 
-    const initCanvas = (preserve: boolean) => {
-      const dpr = window.devicePixelRatio || 1;
-      const rect = container.getBoundingClientRect();
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      let snapshot: string | null = null;
-      const prevW = canvas.width;
-      const prevH = canvas.height;
-      if (preserve && prevW > 0 && prevH > 0) snapshot = canvas.toDataURL();
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
-      canvas.style.width = `${rect.width}px`;
-      canvas.style.height = `${rect.height}px`;
-      dprRef.current = dpr;
-      ctx.scale(dpr, dpr);
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, rect.width, rect.height);
-      if (snapshot) {
-        const img = new Image();
-        img.onload = () => ctx.drawImage(img, 0, 0, prevW / dpr, prevH / dpr);
-        img.src = snapshot;
-      }
-    };
+    // Fixed logical canvas size — identical coordinate system for teacher and student.
+    // Users with smaller windows scroll; resizing does NOT clear content.
+    const LOGICAL_WIDTH = 2400;
+    const LOGICAL_HEIGHT = 1600;
 
-    initCanvas(false);
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = Math.round(LOGICAL_WIDTH * dpr);
+    canvas.height = Math.round(LOGICAL_HEIGHT * dpr);
+    canvas.style.width = `${LOGICAL_WIDTH}px`;
+    canvas.style.height = `${LOGICAL_HEIGHT}px`;
+    dprRef.current = dpr;
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
     setTimeout(() => takeSnapshot(), 0);
-    const onResize = () => initCanvas(true);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
   }, [takeSnapshot]);
 
   // ── Selection helpers ──────────────────────────────────────────────────────
@@ -338,17 +340,31 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     if (onStroke) onStroke({ action: "clear" });
   }, [takeSnapshot, onStroke]);
 
-  // Expose method for parent to inject remote strokes (used for live-share student view)
   useImperativeHandle(ref, () => ({
     applyRemoteStroke: (stroke: StrokeEvent) => {
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx || !canvasRef.current) return;
+      const cssW = canvasRef.current.width / dprRef.current;
+      const cssH = canvasRef.current.height / dprRef.current;
+
       if (stroke.action === "clear") {
         ctx.fillStyle = "#FFFFFF";
-        ctx.fillRect(0, 0, canvasRef.current.width / dprRef.current, canvasRef.current.height / dprRef.current);
+        ctx.fillRect(0, 0, cssW, cssH);
+        return;
+      }
+      // Replace full canvas from snapshot (used for undo/redo sync)
+      if (stroke.action === "snapshot" && stroke.dataURL) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(0, 0, cssW, cssH);
+          ctx.drawImage(img, 0, 0, cssW, cssH);
+        };
+        img.src = stroke.dataURL;
         return;
       }
       if (stroke.action === "draw" && stroke.previousX != null && stroke.previousY != null && stroke.x != null && stroke.y != null) {
+
         ctx.beginPath();
         ctx.moveTo(stroke.previousX, stroke.previousY);
         ctx.lineTo(stroke.x, stroke.y);
@@ -647,11 +663,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       )}
 
       {/* ── Canvas area ── */}
-      <div ref={containerRef} style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-        <canvas
+      <div ref={containerRef} style={{ flex: 1, overflow: "auto", position: "relative", background: "#F3F4F6" }}>        <canvas
           ref={canvasRef}
-          style={{ display: "block", width: "100%", height: "100%", cursor: readOnly ? "default" : cursor, touchAction: "none", background: "#FFFFFF", border: "1px solid #D1D5DB" }}
-          onMouseDown={readOnly ? undefined : startDrawing}
+          style={{ display: "block", cursor: readOnly ? "default" : cursor, touchAction: "none", background: "#FFFFFF", border: "1px solid #D1D5DB" }}          onMouseDown={readOnly ? undefined : startDrawing}
           onMouseMove={readOnly ? undefined : draw}
           onMouseUp={readOnly ? undefined : stopDrawing}
           onMouseLeave={readOnly ? undefined : stopDrawing}
