@@ -13,7 +13,8 @@ interface Course {
     description: string;
     courseCode: string;
     teacher: string;
-    }
+    pictureURL?: string;
+}
 
 // Response shape from backend GET /users/{id}/courses (CourseGetDTO)
 interface CourseGetDTO {
@@ -101,12 +102,13 @@ interface CourseGetDTO {
     (async () => {
       try {
           const data = await apiService.get<CourseGetDTO[]>(`/users/${user.id}/courses`, user.token ?? undefined);        setCourses(data.map((c) => ({
-          courseId: c.id,
-          title: c.title,
-          description: c.description ?? "",
-          courseCode: c.courseCode,
-          teacher: "", // teacher name not included in DTO yet
-        })));
+              courseId: c.id,
+              title: c.title,
+              description: c.description ?? "",
+              courseCode: c.courseCode,
+              teacher: "",
+              pictureURL: c.pictureURL,
+          })));
       } catch (err) {
         if (err instanceof Error) {
           console.error("Failed to load enrolled courses:", err.message);
@@ -161,20 +163,22 @@ interface CourseGetDTO {
           {courses.map(course => (
             <Card key={course.courseId} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
               {/* Course Image */}
-              <div style={{
-                background: gradients[course.courseId % gradients.length],
-                borderRadius: "8px",
-                height: "80px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "24px",
-                fontWeight: 700,
-                color: "white",
-                marginBottom: "12px"
-              }}>
-                {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
-              </div>
+                <div style={{
+                    background: course.pictureURL
+                        ? `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url(${course.pictureURL}) center/cover`
+                        : gradients[course.courseId % gradients.length],
+                    borderRadius: "8px",
+                    height: "80px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "24px",
+                    fontWeight: 700,
+                    color: "white",
+                    marginBottom: "12px"
+                }}>
+                    {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
+                </div>
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
               <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>{course.description}</p>
