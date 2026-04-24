@@ -82,14 +82,14 @@ reason).
 
 ---
 
-## Contributions Week 4 - [Begin Date] to [End Date]
+## Contributions Week 4 - [20.04] to [24.4]
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
 | **[@MoritzDav](https://github.com/MoritzDav)** | [21.04]   | [83052bc](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/104) | created put endpoint and updateUser functionality | to update credentials |
 |                    | [21.04]   | [b55007c](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/111) | added CourseCreationTests, CourseEnrollnmentTests and UserControllertest | to test the internal logic |
-| **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@AQuant1](https://github.com/AQuant1)** | [23.04] | [78e2ee5](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/78e2ee59d32746adb384beb55d05f39bc51afadc) | Added WebSocket broadcasting of teacher whiteboard strokes + refactored session and course flow | Enables teachers to live-share their whiteboard drawings during a session |
+|                    | [23.04] | [cfa0df2](https://github.com/MoritzDav/sopra-fs26-group-04-client/commit/cfa0df2549fbc8a4cba669a0ac24d4221727a70f) | Added student reception of teacher whiteboard drawings via WebSocket + refactored enrollment and student dashboard | Students now see the teacher's live drawings in real time, completes the live-share feature |
 | **[@Bablandan](https://github.com/Bablandan)** | [19.04.]   | [469e40f](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/106/commits/469e40f51a7580a78780000d413d5bc5d990f3d0) inside Pull Request [679383e](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/679383e377eed232ff2b1a2e8e56b78c89a9fc35)| Creating POST and PUT endpoints to start/create a session and to end it  | necessary to launch a session including whiteboard to work collaboratively |
 |                    | [22.04.]   | [75ca17c](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/75ca17cf05d60aaf7b3943d9ac5d69883edb5a95) and some testings to get the score up [e55b737](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/e55b7371321f15e2f95c959a2f27614757f51fae)| Setting up endpoints such that teacher/student sees an overview of all courses they're currently enrolled in in the dashboard | necessary to be able to click on courses in order to then join a session |
 | **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
