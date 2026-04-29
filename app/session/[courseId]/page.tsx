@@ -235,7 +235,7 @@ function SessionPageInner() {
 
         {/* Teacher whiteboard fills remaining space */}
         <div style={{ flex: 1, overflow: "hidden" }}>
-          <WhiteboardCanvas label="Teacher's Whiteboard" onStroke={handleTeacherStroke} fullHeight={false} />
+          <WhiteboardCanvas onStroke={handleTeacherStroke} fullHeight={false} />
         </div>
 
         {/* ── Chat overlay backdrop ── */}
