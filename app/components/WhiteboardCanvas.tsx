@@ -7,12 +7,7 @@ import {
   FileUp, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-
-if (typeof window !== "undefined") {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-}
 
 type Tool = "pen" | "eraser" | "text";
 
@@ -294,6 +289,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
 
   const loadPdf = useCallback(async (file: File) => {
     try {
+      // Dynamic import keeps pdfjs-dist out of the SSR bundle — it references
+      // browser-only globals (DOMMatrix) that crash Node.js during prerendering.
+      const pdfjsLib = await import("pdfjs-dist");
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      }
       const arrayBuffer = await file.arrayBuffer();
       const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       pdfDocRef.current = doc;
