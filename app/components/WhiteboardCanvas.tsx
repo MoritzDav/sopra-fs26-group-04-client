@@ -60,6 +60,12 @@ interface WhiteboardCanvasProps {
   fullHeight?: boolean;
   label?: string;
   onStroke?: (stroke: StrokeEvent) => void;
+  /** Composite PNG (data URL) to restore on mount — used for session persistence. */
+  initialSnapshot?: string;
+  /** Called (debounced 1.5 s) with the composite PNG after every drawing change. */
+  onCompositeSnapshot?: (dataURL: string) => void;
+  /** Set to false to hide the PDF upload button (e.g. for student personal boards). */
+  allowPdf?: boolean;
 }
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(({
@@ -67,6 +73,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   fullHeight = true,
   label,
   onStroke,
+  initialSnapshot,
+  onCompositeSnapshot,
+  allowPdf = true,
 }, ref) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -117,6 +126,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const [logicalW, setLogicalW] = useState(DEFAULT_PAGE_W);
   const [logicalH, setLogicalH] = useState(DEFAULT_PAGE_H);
 
+  // Backend persistence
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep a stable ref so takeSnapshot doesn't need onCompositeSnapshot in its deps
+  const onCompositeSnapshotRef = useRef(onCompositeSnapshot);
+  useEffect(() => { onCompositeSnapshotRef.current = onCompositeSnapshot; }, [onCompositeSnapshot]);
+
   textElemsRef.current = textElements;
 
   // ── B/I/U active state ─────────────────────────────────────────────────────
@@ -148,6 +163,26 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   }, [editingId]);
 
   // ── Snapshot helpers ───────────────────────────────────────────────────────
+
+  // Returns a composite PNG (bgCanvas PDF layer + drawCanvas annotations).
+  // When no PDF is loaded this is just the draw canvas (already white-backed).
+  // Stable deps: only refs — safe with empty dependency array.
+  const getCompositeDataURL = useCallback((): string => {
+    const drawCanvas = canvasRef.current;
+    if (!drawCanvas) return "";
+    if (!hasPdfRef.current) return drawCanvas.toDataURL();
+    const bgCanvas = bgCanvasRef.current;
+    if (!bgCanvas) return drawCanvas.toDataURL();
+    const off = document.createElement("canvas");
+    off.width = drawCanvas.width;
+    off.height = drawCanvas.height;
+    const ctx = off.getContext("2d");
+    if (!ctx) return drawCanvas.toDataURL();
+    ctx.drawImage(bgCanvas, 0, 0);
+    ctx.drawImage(drawCanvas, 0, 0);
+    return off.toDataURL();
+  }, []);
+
   const takeSnapshot = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || canvas.width === 0) return;
@@ -157,9 +192,17 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift();
     historyIdxRef.current = historyRef.current.length - 1;
     setHistState({ idx: historyIdxRef.current, len: historyRef.current.length });
-  }, []);
+    // Debounced backend save — fires the composite (PDF + annotations) 1.5 s after last change
+    if (onCompositeSnapshotRef.current) {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        const composite = getCompositeDataURL();
+        if (composite) onCompositeSnapshotRef.current?.(composite);
+      }, 1500);
+    }
+  }, [getCompositeDataURL]);
 
-  const applyEntry = useCallback((entry: HistoryEntry) => {
+  const applyEntry = useCallback((entry: HistoryEntry, onApplied?: () => void) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!ctx || !canvas) return;
@@ -175,18 +218,37 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.fillRect(0, 0, cssW, cssH);
       }
       ctx.drawImage(img, 0, 0, cssW, cssH);
+      onApplied?.();
     };
     img.src = entry.dataURL;
     textElemsRef.current = entry.textElements;
     setTextElements(entry.textElements);
   }, []);
 
+  // Broadcasts a compressed composite (PDF + annotations) to students.
+  // Uses CSS-resolution JPEG to keep the WebSocket message well under server limits.
+  // Full-resolution PNG is kept for backend saves (getCompositeDataURL).
   const broadcastSnapshot = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !onStroke) return;
+    if (!onStroke) return;
     setTimeout(() => {
-      const dataURL = canvas.toDataURL();
-      onStroke({ action: "snapshot", dataURL });
+      const drawCanvas = canvasRef.current;
+      if (!drawCanvas) return;
+      const dpr = dprRef.current;
+      const cssW = drawCanvas.width / dpr;
+      const cssH = drawCanvas.height / dpr;
+      const off = document.createElement("canvas");
+      off.width = cssW;
+      off.height = cssH;
+      const offCtx = off.getContext("2d");
+      if (!offCtx) return;
+      offCtx.fillStyle = "#FFFFFF";
+      offCtx.fillRect(0, 0, cssW, cssH);
+      if (hasPdfRef.current && bgCanvasRef.current) {
+        offCtx.drawImage(bgCanvasRef.current, 0, 0, cssW, cssH);
+      }
+      offCtx.drawImage(drawCanvas, 0, 0, cssW, cssH);
+      const dataURL = off.toDataURL("image/jpeg", 0.8);
+      if (dataURL) onStroke({ action: "snapshot", dataURL });
     }, 30);
   }, [onStroke]);
 
@@ -195,9 +257,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setEditingId(null);
     savedRangeRef.current = null;
     historyIdxRef.current--;
-    applyEntry(historyRef.current[historyIdxRef.current]);
+    applyEntry(historyRef.current[historyIdxRef.current], broadcastSnapshot);
     setHistState({ idx: historyIdxRef.current, len: historyRef.current.length });
-    broadcastSnapshot();
   }, [applyEntry, broadcastSnapshot]);
 
   const redo = useCallback(() => {
@@ -205,9 +266,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setEditingId(null);
     savedRangeRef.current = null;
     historyIdxRef.current++;
-    applyEntry(historyRef.current[historyIdxRef.current]);
+    applyEntry(historyRef.current[historyIdxRef.current], broadcastSnapshot);
     setHistState({ idx: historyIdxRef.current, len: historyRef.current.length });
-    broadcastSnapshot();
   }, [applyEntry, broadcastSnapshot]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
@@ -242,6 +302,31 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setLogicalH(DEFAULT_PAGE_H);
     setTimeout(() => takeSnapshot(), 0);
   }, [takeSnapshot]);
+
+  // ── Restore saved session snapshot ────────────────────────────────────────
+  // Fires when the parent passes a previously-saved composite PNG (from the backend).
+  // Runs after canvas init, so the canvas is guaranteed to be ready.
+  useEffect(() => {
+    if (!initialSnapshot) return;
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const cssW = canvas.width / dprRef.current;
+    const cssH = canvas.height / dprRef.current;
+    const img = new Image();
+    img.onload = () => {
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, cssW, cssH);
+      ctx.drawImage(img, 0, 0, cssW, cssH);
+      // Replace the blank initial history entry with this restored state
+      historyRef.current = [];
+      historyIdxRef.current = -1;
+      setHistState({ idx: -1, len: 0 });
+      setTimeout(() => takeSnapshot(), 0);
+    };
+    img.src = initialSnapshot;
+  }, [initialSnapshot, takeSnapshot]);
 
   // ── PDF helpers ────────────────────────────────────────────────────────────
   // Renders a PDF page to bgCanvas and resizes drawCanvas to match.
@@ -313,11 +398,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       const { cssW, cssH } = await renderPdfPage(1, doc);
       setLogicalW(cssW);
       setLogicalH(cssH);
-      setTimeout(() => takeSnapshot(), 0);
+      // Snapshot after a tick so the canvas has finished painting
+      setTimeout(() => { takeSnapshot(); broadcastSnapshot(); }, 0);
     } catch (err) {
       console.error("Failed to load PDF:", err);
     }
-  }, [renderPdfPage, takeSnapshot]);
+  }, [renderPdfPage, takeSnapshot, broadcastSnapshot]);
 
   const switchToPage = useCallback(async (newPage: number) => {
     const doc = pdfDocRef.current;
@@ -495,11 +581,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       isDrawing.current = false;
       lastPoint.current = null;
       takeSnapshot();
+      broadcastSnapshot();
     } else {
       isDrawing.current = false;
       lastPoint.current = null;
     }
-  }, [takeSnapshot]);
+  }, [takeSnapshot, broadcastSnapshot]);
 
   const clearCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -822,50 +909,54 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
             )}
           </div>
 
-          <Divider />
-
-          {/* PDF controls */}
-          <label
-            title="Load PDF"
-            style={{ ...iconBtnStyle(false), cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
-          >
-            <FileUp size={18} />
-            <input
-              type="file"
-              accept=".pdf,application/pdf"
-              style={{ display: "none" }}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (file) await loadPdf(file);
-                e.target.value = "";
-              }}
-            />
-          </label>
-
-          {hasPdf && (
+          {allowPdf && (
             <>
-              <button
-                onClick={() => switchToPage(currentPage - 1)}
-                disabled={currentPage <= 1}
-                title="Previous page"
-                style={iconBtnStyle(false, currentPage <= 1)}
+              <Divider />
+
+              {/* PDF upload + page navigation (teacher only) */}
+              <label
+                title="Load PDF"
+                style={{ ...iconBtnStyle(false), cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
               >
-                <ChevronLeft size={16} />
-              </button>
-              <span style={{
-                fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)",
-                whiteSpace: "nowrap", padding: "0 2px", minWidth: "48px", textAlign: "center",
-              }}>
-                {currentPage} / {totalPages}
-              </span>
-              <button
-                onClick={() => switchToPage(currentPage + 1)}
-                disabled={currentPage >= totalPages}
-                title="Next page"
-                style={iconBtnStyle(false, currentPage >= totalPages)}
-              >
-                <ChevronRight size={16} />
-              </button>
+                <FileUp size={18} />
+                <input
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  style={{ display: "none" }}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) await loadPdf(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+
+              {hasPdf && (
+                <>
+                  <button
+                    onClick={() => switchToPage(currentPage - 1)}
+                    disabled={currentPage <= 1}
+                    title="Previous page"
+                    style={iconBtnStyle(false, currentPage <= 1)}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span style={{
+                    fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)",
+                    whiteSpace: "nowrap", padding: "0 2px", minWidth: "48px", textAlign: "center",
+                  }}>
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => switchToPage(currentPage + 1)}
+                    disabled={currentPage >= totalPages}
+                    title="Next page"
+                    style={iconBtnStyle(false, currentPage >= totalPages)}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </>
+              )}
             </>
           )}
 
