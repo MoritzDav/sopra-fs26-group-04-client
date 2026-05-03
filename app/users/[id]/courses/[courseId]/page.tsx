@@ -22,6 +22,16 @@ interface SessionGetDTO {
   courseId?: number;
 }
 
+// Response from backend GET /courses/{courseCode}/students (StudentsGetDTO)
+interface CourseEnrollment {
+  id: number;
+  studentId: number;
+  courseId: number;
+  joinedDate: string;
+  firstName: string;
+  lastName: string;
+}
+
 export default function CoursePage() {
   const router = useRouter();
   const params = useParams();
@@ -35,6 +45,7 @@ export default function CoursePage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newSessionTitle, setNewSessionTitle] = useState("");
   const [courseTitle, setCourseTitle] = useState<string>("");
+  const [students, setStudents] = useState<CourseEnrollment[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -42,11 +53,29 @@ export default function CoursePage() {
       router.push("/login");
       return;
     }
-    // Fetch course info (title, etc.)
+    if (!user || !user.token) return;
+
+    // Fetch course info and enrolled students
     (async () => {
       try {
-        const course = await apiService.get<{ title: string }>(`/courses/${courseId}`);
+        const course = await apiService.get<{ title: string; courseCode: string }>(`/courses/${courseId}`);
         setCourseTitle(course.title);
+        //fetch enrolled students
+        const enrollments = await apiService.get<CourseEnrollment[]>(`/courses/${course.courseCode}/students`, user.token ?? undefined);
+        const userDetails = await Promise.all( //promise ensures, that all users get fetched at once
+            enrollments.map(e =>
+                apiService.get<{ id: number; firstName: string; lastName: string }>(
+                    `/users/${e.studentId}`,
+                    user?.token ?? undefined
+                )
+            )
+        )
+        setStudents(
+            enrollments.map((e, i) => ({
+              ...e,
+              firstName: userDetails[i].firstName,
+              lastName: userDetails[i].lastName,
+            })))
       } catch { /* non-critical */ }
     })();
     // Fetch sessions for this course from backend
@@ -67,7 +96,7 @@ export default function CoursePage() {
         }
       }
     })();
-  }, [router, courseId, apiService]);
+  }, [router, courseId, apiService, user]);
 
   const isTeacher = user?.role === "TEACHER";
 
@@ -303,9 +332,69 @@ export default function CoursePage() {
           alignItems: "center",
           justifyContent: "center",
         }}>
-          <p style={{ margin: 0, fontSize: "13px", color: "#6B7280", fontStyle: "italic" }}>
-            To be implemented
-          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
+
+            {/* Podium for top 3 students */}
+            {students.length >= 1 && (
+                <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "8px", marginBottom: "16px" }}>
+
+                  {/* 2nd place */}
+                  {students[1] && (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                        <span style={{ fontSize: "11px" }}>{students[1].firstName} {students[1].lastName}</span>
+                        <span style={{ fontSize: "11px", color: "#6B7280" }}>0 🍪</span>
+                        <div style={{ background: "#C0C0C0", width: "60px", height: "40px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700 }}>2</div>
+                      </div>
+                  )}
+
+                  {/* 1st place */}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                    <span style={{ fontSize: "16px" }}>👑</span>
+                    <span style={{ fontSize: "11px", fontWeight: 600 }}>{students[0].firstName} {students[0].lastName}</span>
+                    <span style={{ fontSize: "11px", color: "#6B7280" }}>0 🍪</span>
+                    <div style={{ background: "#FFD700", width: "60px", height: "60px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: "18px" }}>1</div>
+                  </div>
+
+                  {/* 3rd place */}
+                  {students[2] && (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                        <span style={{ fontSize: "11px" }}>{students[2].firstName} {students[2].lastName}</span>
+                        <span style={{ fontSize: "11px", color: "#6B7280" }}>0 🍪</span>
+                        <div style={{ background: "#CD7F32", width: "60px", height: "28px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700 }}>3</div>
+                      </div>
+                  )}
+                </div>
+            )}
+
+            {/* Bar for all students */}
+            {students.map((s, i) => (
+                <div key={s.id} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "8px 12px", background: "rgba(0,0,0,0.06)",
+                  borderRadius: "8px", border: "1px solid rgba(91,108,255,0.1)"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{
+                      fontWeight: 600,
+                      width: "20px",
+                      color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : "#6B7280",
+                      textShadow: "0 1px 2px rgba(0,0,0,0.6)"
+                       }}>
+                      #{i + 1}
+                    </span>
+                    <span>{s.firstName} {s.lastName}</span>
+                  </div>
+                  <span style={{ fontWeight: 600 }}>0 🍪</span>
+                </div>
+            ))}
+
+
+            {students.length === 0 && (
+                <span style={{ fontSize: "13px", color: "#6B7280", fontStyle: "italic" }}>
+      No students enrolled
+    </span>
+            )}
+          </div>
         </div>
       </Card>
 
