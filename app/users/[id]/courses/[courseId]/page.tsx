@@ -30,6 +30,7 @@ interface CourseEnrollment {
   joinedDate: string;
   firstName: string;
   lastName: string;
+  browniePoints: number;
 }
 
 export default function CoursePage() {
@@ -64,18 +65,21 @@ export default function CoursePage() {
         const enrollments = await apiService.get<CourseEnrollment[]>(`/courses/${course.courseCode}/students`, user.token ?? undefined);
         const userDetails = await Promise.all( //promise ensures, that all users get fetched at once
             enrollments.map(e =>
-                apiService.get<{ id: number; firstName: string; lastName: string }>(
+                apiService.get<{ id: number; firstName: string; lastName: string; browniePoints: number }>(
                     `/users/${e.studentId}`,
                     user?.token ?? undefined
                 )
             )
         )
-        setStudents(
-            enrollments.map((e, i) => ({
+        const mapped = enrollments.map((e, i) => ({
               ...e,
               firstName: userDetails[i].firstName,
               lastName: userDetails[i].lastName,
-            })))
+              browniePoints: userDetails[i].browniePoints ?? 0,
+            }));
+        // hardcoded test student — remove once real session participants are wired up
+        mapped.push({ id: 999, studentId: 999, courseId: Number(courseId), joinedDate: "", firstName: "Test", lastName: "Student", browniePoints: 0 });
+        setStudents(mapped);
       } catch { /* non-critical */ }
     })();
     // Fetch sessions for this course from backend
@@ -323,10 +327,6 @@ export default function CoursePage() {
         <div style={{
           marginTop: "16px",
           padding: "16px",
-          background: "rgba(91,108,255,0.05)",
-          border: "1px dashed rgba(91,108,255,0.2)",
-          borderRadius: "10px",
-          textAlign: "center",
           flex: 1,
           display: "flex",
           alignItems: "center",
@@ -342,7 +342,7 @@ export default function CoursePage() {
                   {students[1] && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                         <span style={{ fontSize: "11px" }}>{students[1].firstName} {students[1].lastName}</span>
-                        <span style={{ fontSize: "11px", color: "#6B7280" }}>0 🍪</span>
+                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[1].browniePoints ?? 0} 🍪</span>
                         <div style={{ background: "#C0C0C0", width: "60px", height: "40px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700 }}>2</div>
                       </div>
                   )}
@@ -351,7 +351,7 @@ export default function CoursePage() {
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                     <span style={{ fontSize: "16px" }}>👑</span>
                     <span style={{ fontSize: "11px", fontWeight: 600 }}>{students[0].firstName} {students[0].lastName}</span>
-                    <span style={{ fontSize: "11px", color: "#6B7280" }}>0 🍪</span>
+                    <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[0].browniePoints ?? 0} 🍪</span>
                     <div style={{ background: "#FFD700", width: "60px", height: "60px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: "18px" }}>1</div>
                   </div>
 
@@ -359,7 +359,7 @@ export default function CoursePage() {
                   {students[2] && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                         <span style={{ fontSize: "11px" }}>{students[2].firstName} {students[2].lastName}</span>
-                        <span style={{ fontSize: "11px", color: "#6B7280" }}>0 🍪</span>
+                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[2].browniePoints ?? 0} 🍪</span>
                         <div style={{ background: "#CD7F32", width: "60px", height: "28px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700 }}>3</div>
                       </div>
                   )}
@@ -384,7 +384,7 @@ export default function CoursePage() {
                     </span>
                     <span>{s.firstName} {s.lastName}</span>
                   </div>
-                  <span style={{ fontWeight: 600 }}>0 🍪</span>
+                  <span style={{ fontWeight: 600 }}>{s.browniePoints ?? 0} 🍪</span>
                 </div>
             ))}
 

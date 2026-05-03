@@ -18,6 +18,14 @@ interface ChatMessage {
   timestamp: string;
 }
 
+//Students in Session
+interface StudentEntry {
+    id: number;
+    firstName: string;
+    lastName: string;
+    browniePoints: number;
+}
+
 // Session page showing split-view whiteboards:
 // Left: teacher's whiteboard (read-only)
 // Right: student's personal whiteboard (editable)
@@ -27,12 +35,18 @@ function SessionPageInner() {
   const courseId = params.courseId as string;
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("sessionId");
-  const sessionTitle = searchParams.get("title") ?? `Session #${sessionId ?? ""}`;  const { user, isLoading } = useUser();
+  const sessionTitle = searchParams.get("title") ?? `Session #${sessionId ?? ""}`;
+  const { user, isLoading } = useUser();
   const apiService = useApi();
   const [chatOpen, setChatOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   // Ref to the teacher's whiteboard on the student side (for applying remote strokes)
   const teacherBoardRef = useRef<WhiteboardCanvasHandle | null>(null);
+
+  //Student Dropdown
+  const [students, setStudents] = useState<StudentEntry[]>([]);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [courseCode, setCourseCode] = useState<string>("");
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -124,6 +138,19 @@ function SessionPageInner() {
     };
   }, [courseId, user]);
 
+  //load students live in session
+  // replace with GET /sessions/{sessionId}/participants once backend implements it
+  useEffect(() => {
+    if (!user?.token || !sessionId) return;
+    (async () => {
+      try {
+        // const activeUserIds: number[] = await apiService.get(`/sessions/${sessionId}/participants`, user.token ?? undefined);
+        // hardcoded until backend endpoint exists
+        setStudents([{ id: 999, firstName: "Test", lastName: "Student", browniePoints: 0 }]);
+      } catch { /* non-critical */ }
+    })();
+  }, [sessionId, user?.token, apiService]);
+
   // Establish WebSocket connection to the chat endpoint for this session
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -162,6 +189,21 @@ function SessionPageInner() {
       timestamp: Date.now(),
     }));
   }, [courseId, user?.id]);
+
+  //distribute Brownie Points
+  const giveBrowniePoint = async (studentId: number) => {
+      setStudents(prev =>
+          prev.map(s => s.id === studentId ? { ...s, browniePoints: (s.browniePoints ?? 0) + 1 } : s)
+      );
+      try {
+          const updated = await apiService.post<{ browniePoints: number }>(
+              `/users/${studentId}/browniePoints`, {}, user?.token ?? undefined
+          );
+          setStudents(prev =>
+              prev.map(s => s.id === studentId ? { ...s, browniePoints: updated.browniePoints } : s)
+          );
+      } catch { /* optimistic update stays if backend fails */ }
+  };
 
   // Send a chat message via WebSocket
   const sendChatMessage = () => {
@@ -211,28 +253,84 @@ function SessionPageInner() {
                 {sessionTitle}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <span style={{ fontSize: "12px", color: "#9CA3AF" }}>Live</span>
-            <button
-              onClick={() => setChatOpen(true)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "rgba(91,108,255,0.08)",
-                border: "1px solid rgba(91,108,255,0.15)",
-                color: "#5B6CFF",
-                padding: "6px 12px",
-                borderRadius: "8px",
-                fontSize: "13px",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              <MessageSquare size={14} /> Chat
-            </button>
-          </div>
-        </div>
+              {/* Brownie Points Dropdown */}
+              <div style={{ position: "relative" }}>
+                <button
+                  onClick={() => setDropdownOpen(o => !o)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "6px",
+                    background: "rgba(91,108,255,0.08)",
+                    border: "1px solid rgba(91,108,255,0.15)",
+                    color: "#5B6CFF", padding: "6px 12px",
+                    borderRadius: "8px", fontSize: "13px",
+                    fontWeight: 600, cursor: "pointer",
+                  }}
+                >
+                  🍪 Students
+                </button>
 
+                {dropdownOpen && (
+                  <div style={{
+                    position: "absolute", top: "calc(100% + 8px)", right: 0,
+                    background: "white", borderRadius: "12px",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                    border: "1px solid var(--border)",
+                    minWidth: "260px", zIndex: 200, overflow: "hidden",
+                  }}>
+                    {students.length === 0 ? (
+                      <p style={{ padding: "16px", color: "#9CA3AF", fontSize: "13px", margin: 0 }}>
+                        No students in session
+                      </p>
+                    ) : (
+                      students.map(s => (
+                        <div key={s.id} style={{
+                          display: "flex", alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "10px 16px",
+                          borderBottom: "1px solid var(--border)",
+                        }}>
+                          <div>
+                            <span style={{ fontSize: "14px", color: "#1A1A2E" }}>
+                              {s.firstName} {s.lastName}
+                            </span>
+                            <span style={{ fontSize: "12px", color: "#9CA3AF", marginLeft: "8px" }}>
+                              {s.browniePoints} 🍪
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => giveBrowniePoint(s.id)}
+                            style={{
+                              background: "rgba(91,108,255,0.08)",
+                              border: "1px solid rgba(91,108,255,0.15)",
+                              borderRadius: "8px", padding: "4px 10px",
+                              cursor: "pointer", fontSize: "16px",
+                            }}
+                            title="Give brownie point"
+                          >
+                            🍪
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => setChatOpen(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: "6px",
+                  background: "rgba(91,108,255,0.08)",
+                  border: "1px solid rgba(91,108,255,0.15)",
+                  color: "#5B6CFF", padding: "6px 12px",
+                  borderRadius: "8px", fontSize: "13px",
+                  fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                <MessageSquare size={14} /> Chat
+              </button>
+            </div>
+        </div>
         {/* Teacher whiteboard fills remaining space */}
         <div style={{ flex: 1, overflow: "hidden" }}>
           <WhiteboardCanvas label="Teacher's Whiteboard" onStroke={handleTeacherStroke} fullHeight={false} />
@@ -407,7 +505,6 @@ function SessionPageInner() {
           {sessionTitle}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <span style={{ fontSize: "12px", color: "#9CA3AF" }}>Live</span>
           <button
             onClick={() => setChatOpen(true)}
             style={{
