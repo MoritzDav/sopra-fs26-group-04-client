@@ -56,6 +56,11 @@ function SessionPageInner() {
   // Teacher's userId – fetched from GET /courses/{courseId} (no auth required)
   const [teacherUserId, setTeacherUserId] = useState<number | undefined>(undefined);
 
+  // Whiteboard persistence — saved composite PNG from the backend
+  const [savedSnapshot, setSavedSnapshot] = useState<string | undefined>();
+  // Student-side: snapshot for the read-only teacher board
+  const [teacherSnapshot, setTeacherSnapshot] = useState<string | undefined>();
+
     // Split ratio between teacher's whiteboard (left) and personal whiteboard (right)
     const [splitRatio, setSplitRatio] = useState(0.5);
     const splitContainerRef = useRef<HTMLDivElement | null>(null);
@@ -100,6 +105,33 @@ function SessionPageInner() {
       .catch(() => { /* non-critical, badge just won't show */ });
   }, [courseId, apiService]);
 
+  // Load saved whiteboard state from the backend on mount.
+  // Teachers restore their own saved canvas; students restore the teacher's last state.
+  useEffect(() => {
+    if (!courseId || !sessionId) return;
+    apiService.get<{ canvasSnapshot?: string }>(
+      `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
+      user?.token ?? undefined,
+    )
+      .then(data => {
+        if (!data.canvasSnapshot) return;
+        // Teacher: pass as initialSnapshot prop so WhiteboardCanvas restores it.
+        // Student: inject via applyRemoteStroke so the read-only board shows the teacher's work.
+        if (user?.role === "TEACHER") {
+          setSavedSnapshot(data.canvasSnapshot);
+        } else {
+          setTeacherSnapshot(data.canvasSnapshot);
+        }
+      })
+      .catch(() => { /* 404 = no saved state yet, that's fine */ });
+  }, [courseId, sessionId, user?.token, user?.role, apiService]);
+
+  // Apply fetched teacher snapshot to the read-only board once both are available.
+  useEffect(() => {
+    if (!teacherSnapshot || !teacherBoardRef.current) return;
+    teacherBoardRef.current.applyRemoteStroke({ action: "snapshot", dataURL: teacherSnapshot });
+  }, [teacherSnapshot]);
+
   // Establish WebSocket connection to the whiteboard endpoint for this course
   useEffect(() => {
     if (!courseId || !user) return;
@@ -126,6 +158,7 @@ function SessionPageInner() {
           previousY: msg.previousY,
           color: msg.color,
           size: msg.size,
+          dataURL: msg.dataURL,
         });
       } catch (err) {
         console.error("Failed to parse incoming stroke", err);
@@ -190,6 +223,17 @@ function SessionPageInner() {
     }));
   }, [courseId, user?.id]);
 
+  // Persist the teacher's whiteboard state to the backend (called debounced from WhiteboardCanvas).
+  const handleSaveSnapshot = useCallback(async (dataURL: string) => {
+    if (!courseId || !sessionId || !user?.token) return;
+    try {
+      await apiService.put(
+        `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
+        { canvasSnapshot: dataURL },
+        user.token,
+      );
+    } catch { /* non-critical — drawing still works even if save fails */ }
+  }, [courseId, sessionId, user?.token, apiService]);
   //distribute Brownie Points
   const giveBrowniePoint = async (studentId: number) => {
       setStudents(prev =>
@@ -333,7 +377,12 @@ function SessionPageInner() {
         </div>
         {/* Teacher whiteboard fills remaining space */}
         <div style={{ flex: 1, overflow: "hidden" }}>
-          <WhiteboardCanvas label="Teacher's Whiteboard" onStroke={handleTeacherStroke} fullHeight={false} />
+          <WhiteboardCanvas
+            onStroke={handleTeacherStroke}
+            fullHeight={false}
+            initialSnapshot={savedSnapshot}
+            onCompositeSnapshot={handleSaveSnapshot}
+          />
         </div>
 
         {/* ── Chat overlay backdrop ── */}
@@ -600,7 +649,7 @@ function SessionPageInner() {
                 boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
                 background: "white",
             }}>
-                <WhiteboardCanvas fullHeight={false} label="Your Personal Notes" />
+                <WhiteboardCanvas fullHeight={false} label="Your Personal Notes" allowPdf={false} />
             </div>
         </div>
 
