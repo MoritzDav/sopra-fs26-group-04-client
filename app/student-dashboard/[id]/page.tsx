@@ -161,7 +161,7 @@ interface CourseGetDTO {
 
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           {courses.map(course => (
-            <Card key={course.courseId} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}> {/* später user.id wenn id korrekt aus backend gelesen wird */}
+            <Card key={course.courseId} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}>
               {/* Course Image */}
                 <div style={{
                     background: course.pictureURL
