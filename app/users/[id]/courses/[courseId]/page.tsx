@@ -45,6 +45,7 @@ export default function CoursePage() {
   const [starting, setStarting] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newSessionTitle, setNewSessionTitle] = useState("");
+  const [newSessionPdfFile, setNewSessionPdfFile] = useState<File | null>(null);
   const [courseTitle, setCourseTitle] = useState<string>("");
   const [students, setStudents] = useState<CourseEnrollment[]>([]);
 
@@ -113,6 +114,7 @@ export default function CoursePage() {
   // Opens modal to name the new session
   const openCreateSessionModal = () => {
     setNewSessionTitle("");
+    setNewSessionPdfFile(null);
     setCreateModalOpen(true);
   };
 
@@ -144,6 +146,16 @@ export default function CoursePage() {
         ...prev,
       ]);
       setCreateModalOpen(false);
+      // Persist the PDF so it auto-loads when the teacher enters the session
+      if (newSessionPdfFile) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const b64 = result.split(",")[1];
+          if (b64) sessionStorage.setItem(`pdf_session_${created.sessionId}`, b64);
+        };
+        reader.readAsDataURL(newSessionPdfFile);
+      }
       router.push(`/session/${courseId}?sessionId=${created.sessionId}&title=${encodeURIComponent(title)}`);    } catch (err) {
       if (err instanceof Error) {
         message.error(`Failed to start session: ${err.message}`);
@@ -417,6 +429,33 @@ export default function CoursePage() {
           placeholder="e.g. Lecture 1: Introduction"
           onPressEnter={handleConfirmCreateSession}
         />
+        <div style={{ marginTop: 16 }}>
+          <p style={{ color: "#6B7280", fontSize: "13px", marginBottom: 6 }}>
+            Upload PDF (optional) — it will auto-load when you enter the session.
+          </p>
+          <label style={{
+            display: "inline-flex", alignItems: "center", gap: "8px",
+            padding: "8px 14px", borderRadius: "10px", cursor: "pointer",
+            background: "rgba(91,108,255,0.06)", border: "1.5px dashed rgba(91,108,255,0.3)",
+            color: "#5B6CFF", fontSize: "13px", fontWeight: 600,
+          }}>
+            📄 {newSessionPdfFile ? newSessionPdfFile.name : "Choose PDF…"}
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              style={{ display: "none" }}
+              onChange={(e) => setNewSessionPdfFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          {newSessionPdfFile && (
+            <button
+              onClick={() => setNewSessionPdfFile(null)}
+              style={{ marginLeft: 8, background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: "13px" }}
+            >
+              Remove
+            </button>
+          )}
+        </div>
       </Modal>
     </div>
   );

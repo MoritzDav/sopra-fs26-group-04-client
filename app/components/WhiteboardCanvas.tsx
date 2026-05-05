@@ -13,7 +13,7 @@ type Tool = "pen" | "eraser" | "text";
 
 interface Point { x: number; y: number; }
 
-interface TextElement {
+export interface TextElement {
   id: string;
   x: number;
   y: number;
@@ -41,7 +41,7 @@ const PRESET_COLORS = [
 ];
 
 export interface StrokeEvent {
-  action: "draw" | "clear" | "snapshot";
+  action: "draw" | "clear" | "snapshot" | "resync";
   x?: number;
   y?: number;
   previousX?: number;
@@ -49,6 +49,7 @@ export interface StrokeEvent {
   color?: string;
   size?: number;
   dataURL?: string;
+  textElements?: TextElement[];
 }
 
 export interface WhiteboardCanvasHandle {
@@ -64,8 +65,15 @@ interface WhiteboardCanvasProps {
   initialSnapshot?: string;
   /** Called (debounced 1.5 s) with the composite PNG after every drawing change. */
   onCompositeSnapshot?: (dataURL: string) => void;
+  /** Called after undo/redo/text/clear with the composite PNG + current text elements.
+   *  The parent is responsible for saving to backend THEN notifying students (resync). */
+  onResync?: (composite: string, textElements: TextElement[]) => void;
   /** Set to false to hide the PDF upload button (e.g. for student personal boards). */
   allowPdf?: boolean;
+  /** Pre-load this PDF file on mount (used to restore PDF when re-entering a session). */
+  pdfFile?: File;
+  /** Called when a PDF is successfully loaded so the parent can persist it. */
+  onPdfLoaded?: (file: File) => void;
 }
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(({
@@ -75,7 +83,10 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   onStroke,
   initialSnapshot,
   onCompositeSnapshot,
+  onResync,
   allowPdf = true,
+  pdfFile,
+  onPdfLoaded,
 }, ref) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -120,17 +131,75 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
   const [totalPages, setTotalPages] = useState(0);
-  const pageAnnotationsRef = useRef<Map<number, HistoryEntry>>(new Map());
+  const pageAnnotationsRef = useRef<Map<number, { history: HistoryEntry[]; historyIdx: number }>>(new Map());
 
   // Logical canvas dimensions in CSS pixels (updated when PDF page changes)
   const [logicalW, setLogicalW] = useState(DEFAULT_PAGE_W);
   const [logicalH, setLogicalH] = useState(DEFAULT_PAGE_H);
+  const logicalWRef = useRef(DEFAULT_PAGE_W);
+  const logicalHRef = useRef(DEFAULT_PAGE_H);
+  useEffect(() => { logicalWRef.current = logicalW; }, [logicalW]);
+  useEffect(() => { logicalHRef.current = logicalH; }, [logicalH]);
+
+  const [zoom, setZoom] = useState(1.0);
+  const zoomRef = useRef(1.0);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+  const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.1 : -0.1;
+      setZoom(z => Math.max(0.25, Math.min(3, parseFloat((z + delta).toFixed(2)))));
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchRef.current = { dist: Math.hypot(dx, dy), zoom: zoomRef.current };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || !pinchRef.current) return;
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const scale = Math.hypot(dx, dy) / pinchRef.current.dist;
+      setZoom(Math.max(0.25, Math.min(3, parseFloat((pinchRef.current.zoom * scale).toFixed(2)))));
+    };
+
+    const onTouchEnd = () => { pinchRef.current = null; };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
+  }, []); // containerRef is stable after mount
 
   // Backend persistence
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Keep a stable ref so takeSnapshot doesn't need onCompositeSnapshot in its deps
   const onCompositeSnapshotRef = useRef(onCompositeSnapshot);
   useEffect(() => { onCompositeSnapshotRef.current = onCompositeSnapshot; }, [onCompositeSnapshot]);
+
+  const onPdfLoadedRef = useRef(onPdfLoaded);
+  useEffect(() => { onPdfLoadedRef.current = onPdfLoaded; }, [onPdfLoaded]);
+
+  const onResyncRef = useRef(onResync);
+  useEffect(() => { onResyncRef.current = onResync; }, [onResync]);
 
   textElemsRef.current = textElements;
 
@@ -225,50 +294,89 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setTextElements(entry.textElements);
   }, []);
 
-  // Broadcasts a compressed composite (PDF + annotations) to students.
-  // Uses CSS-resolution JPEG to keep the WebSocket message well under server limits.
-  // Full-resolution PNG is kept for backend saves (getCompositeDataURL).
-  const broadcastSnapshot = useCallback(() => {
-    if (!onStroke) return;
-    setTimeout(() => {
-      const drawCanvas = canvasRef.current;
-      if (!drawCanvas) return;
-      const dpr = dprRef.current;
-      const cssW = drawCanvas.width / dpr;
-      const cssH = drawCanvas.height / dpr;
-      const off = document.createElement("canvas");
-      off.width = cssW;
-      off.height = cssH;
-      const offCtx = off.getContext("2d");
-      if (!offCtx) return;
-      offCtx.fillStyle = "#FFFFFF";
-      offCtx.fillRect(0, 0, cssW, cssH);
-      if (hasPdfRef.current && bgCanvasRef.current) {
-        offCtx.drawImage(bgCanvasRef.current, 0, 0, cssW, cssH);
-      }
-      offCtx.drawImage(drawCanvas, 0, 0, cssW, cssH);
-      const dataURL = off.toDataURL("image/jpeg", 0.8);
-      if (dataURL) onStroke({ action: "snapshot", dataURL });
-    }, 30);
-  }, [onStroke]);
+  // Like getCompositeDataURL but also burns text elements in as pixels.
+  // Uses SVG foreignObject so the browser's own CSS engine handles font metrics —
+  // positioning is pixel-perfect regardless of font size or formatting.
+  const getBurnedCompositeDataURL = useCallback((): Promise<string> => {
+    const drawCanvas = canvasRef.current;
+    if (!drawCanvas) return Promise.resolve(getCompositeDataURL());
+    const dpr = dprRef.current;
+    const cssW = drawCanvas.width / dpr;
+    const cssH = drawCanvas.height / dpr;
+
+    const off = document.createElement("canvas");
+    off.width = drawCanvas.width;
+    off.height = drawCanvas.height;
+    const ctx = off.getContext("2d");
+    if (!ctx) return Promise.resolve(getCompositeDataURL());
+
+    if (hasPdfRef.current && bgCanvasRef.current) {
+      ctx.drawImage(bgCanvasRef.current, 0, 0);
+    } else {
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, off.width, off.height);
+    }
+    ctx.drawImage(drawCanvas, 0, 0);
+
+    const elems = textElemsRef.current.filter(el => el.html.trim());
+    if (elems.length === 0) return Promise.resolve(off.toDataURL());
+
+    // Normalise void HTML elements to XHTML so the SVG XML parser accepts them
+    const toXhtml = (html: string) => html.replace(/<br\s*\/?>/gi, "<br/>");
+
+    const divs = elems.map(el =>
+      `<div style="position:absolute;left:${el.x}px;top:${el.y}px;` +
+      `font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;` +
+      `font-size:${el.fontSize}px;color:${el.color};line-height:${LINE_HEIGHT};` +
+      `padding:4px 8px;white-space:pre-wrap;word-break:break-word;">${toXhtml(el.html)}</div>`
+    ).join("");
+
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${cssH}">` +
+      `<foreignObject x="0" y="0" width="${cssW}" height="${cssH}">` +
+      `<div xmlns="http://www.w3.org/1999/xhtml" ` +
+      `style="position:relative;width:${cssW}px;height:${cssH}px;overflow:hidden;">` +
+      `${divs}</div></foreignObject></svg>`;
+
+    return new Promise<string>(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          ctx.drawImage(img, 0, 0, off.width, off.height);
+          resolve(off.toDataURL());
+        } catch {
+          resolve(off.toDataURL()); // tainted canvas fallback — returns without text overlay
+        }
+      };
+      img.onerror = () => resolve(off.toDataURL());
+      img.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    });
+  }, [getCompositeDataURL]);
+
+  // Hands the current composite state (with text burned in) to the parent after undo/redo/text/clear.
+  // The parent saves to backend, then notifies students via a lightweight WS resync message.
+  const flushAndResync = useCallback(async () => {
+    const composite = await getBurnedCompositeDataURL();
+    onResyncRef.current?.(composite, [...textElemsRef.current]);
+  }, [getBurnedCompositeDataURL]);
 
   const undo = useCallback(() => {
     if (historyIdxRef.current <= 0) return;
     setEditingId(null);
     savedRangeRef.current = null;
     historyIdxRef.current--;
-    applyEntry(historyRef.current[historyIdxRef.current], broadcastSnapshot);
+    applyEntry(historyRef.current[historyIdxRef.current], flushAndResync);
     setHistState({ idx: historyIdxRef.current, len: historyRef.current.length });
-  }, [applyEntry, broadcastSnapshot]);
+  }, [applyEntry, flushAndResync]);
 
   const redo = useCallback(() => {
     if (historyIdxRef.current >= historyRef.current.length - 1) return;
     setEditingId(null);
     savedRangeRef.current = null;
     historyIdxRef.current++;
-    applyEntry(historyRef.current[historyIdxRef.current], broadcastSnapshot);
+    applyEntry(historyRef.current[historyIdxRef.current], flushAndResync);
     setHistState({ idx: historyIdxRef.current, len: historyRef.current.length });
-  }, [applyEntry, broadcastSnapshot]);
+  }, [applyEntry, flushAndResync]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -398,12 +506,22 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       const { cssW, cssH } = await renderPdfPage(1, doc);
       setLogicalW(cssW);
       setLogicalH(cssH);
-      // Snapshot after a tick so the canvas has finished painting
-      setTimeout(() => { takeSnapshot(); broadcastSnapshot(); }, 0);
+      onPdfLoadedRef.current?.(file);
+      // Flush after a tick so the canvas has finished painting
+      setTimeout(() => { takeSnapshot(); flushAndResync(); }, 0);
     } catch (err) {
       console.error("Failed to load PDF:", err);
     }
-  }, [renderPdfPage, takeSnapshot, broadcastSnapshot]);
+  }, [renderPdfPage, takeSnapshot, flushAndResync]);
+
+  // Auto-load pdfFile prop when provided (restores PDF on session re-entry).
+  // Uses a ref so the effect dep is only pdfFile, not the loadPdf function.
+  const loadPdfFnRef = useRef(loadPdf);
+  useEffect(() => { loadPdfFnRef.current = loadPdf; }, [loadPdf]);
+  useEffect(() => {
+    if (!pdfFile) return;
+    loadPdfFnRef.current(pdfFile);
+  }, [pdfFile]);
 
   const switchToPage = useCallback(async (newPage: number) => {
     const doc = pdfDocRef.current;
@@ -412,10 +530,10 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Save drawing layer for current page (transparent PNG, PDF not included)
+    // Save full undo history for current page before leaving
     pageAnnotationsRef.current.set(currentPageRef.current, {
-      dataURL: canvas.toDataURL(),
-      textElements: [...textElemsRef.current],
+      history: historyRef.current.slice(),
+      historyIdx: historyIdxRef.current,
     });
 
     currentPageRef.current = newPage;
@@ -423,31 +541,39 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     textElemsRef.current = [];
     setTextElements([]);
     setEditingId(null);
-    historyRef.current = [];
-    historyIdxRef.current = -1;
-    setHistState({ idx: -1, len: 0 });
 
     const { cssW, cssH } = await renderPdfPage(newPage, doc);
     setLogicalW(cssW);
     setLogicalH(cssH);
 
     const saved = pageAnnotationsRef.current.get(newPage);
-    if (saved) {
+    if (saved && saved.history.length > 0) {
+      // Restore undo history for this page
+      historyRef.current = saved.history;
+      historyIdxRef.current = saved.historyIdx;
+      setHistState({ idx: saved.historyIdx, len: saved.history.length });
+
+      // Restore canvas from the current history entry
+      const entry = saved.history[saved.historyIdx];
       const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      if (!ctx || !entry) return;
       const img = new Image();
       img.onload = () => {
         ctx.clearRect(0, 0, cssW, cssH);
         ctx.drawImage(img, 0, 0, cssW, cssH);
-        textElemsRef.current = saved.textElements;
-        setTextElements(saved.textElements);
-        setTimeout(() => takeSnapshot(), 0);
+        textElemsRef.current = entry.textElements;
+        setTextElements(entry.textElements);
+        flushAndResync();
       };
-      img.src = saved.dataURL;
+      img.src = entry.dataURL;
     } else {
-      setTimeout(() => takeSnapshot(), 0);
+      // First visit to this page — start with a clean history
+      historyRef.current = [];
+      historyIdxRef.current = -1;
+      setHistState({ idx: -1, len: 0 });
+      setTimeout(() => { takeSnapshot(); flushAndResync(); }, 0);
     }
-  }, [renderPdfPage, takeSnapshot]);
+  }, [renderPdfPage, takeSnapshot, flushAndResync]);
 
   // ── Selection helpers ──────────────────────────────────────────────────────
   const saveSelection = useCallback(() => {
@@ -475,8 +601,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setEditingId(null);
     savedRangeRef.current = null;
     setTextElements(next);
-    if (hasContent) takeSnapshot();
-  }, [editingId, takeSnapshot]);
+    if (hasContent) { takeSnapshot(); flushAndResync(); }
+  }, [editingId, takeSnapshot, flushAndResync]);
 
   // ── Drawing ────────────────────────────────────────────────────────────────
   const startDrawing = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -550,6 +676,18 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.lineJoin = "round";
         ctx.stroke();
       }
+      // Send eraser as a lightweight white stroke so students see it without a snapshot
+      if (onStroke) {
+        onStroke({
+          action: "draw",
+          x: pt.x,
+          y: pt.y,
+          previousX: lastPoint.current.x,
+          previousY: lastPoint.current.y,
+          color: "#FFFFFF",
+          size: eraserSize,
+        });
+      }
     } else {
       ctx.beginPath();
       ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
@@ -581,12 +719,11 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       isDrawing.current = false;
       lastPoint.current = null;
       takeSnapshot();
-      broadcastSnapshot();
     } else {
       isDrawing.current = false;
       lastPoint.current = null;
     }
-  }, [takeSnapshot, broadcastSnapshot]);
+  }, [takeSnapshot]);
 
   const clearCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -604,8 +741,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setTextElements([]);
     setEditingId(null);
     takeSnapshot();
-    if (onStroke) onStroke({ action: "clear" });
-  }, [takeSnapshot, onStroke]);
+    flushAndResync();
+  }, [takeSnapshot, flushAndResync]);
 
   useImperativeHandle(ref, () => ({
     applyRemoteStroke: (stroke: StrokeEvent) => {
@@ -621,20 +758,42 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           ctx.fillStyle = "#FFFFFF";
           ctx.fillRect(0, 0, cssW, cssH);
         }
+        textElemsRef.current = [];
+        setTextElements([]);
         return;
       }
       if (stroke.action === "snapshot" && stroke.dataURL) {
         const img = new Image();
         img.onload = () => {
-          if (hasPdfRef.current) {
-            ctx.clearRect(0, 0, cssW, cssH);
-          } else {
-            ctx.fillStyle = "#FFFFFF";
-            ctx.fillRect(0, 0, cssW, cssH);
+          const c = canvasRef.current;
+          if (!c) return;
+          const dpr = dprRef.current;
+          const physW = img.naturalWidth;
+          const physH = img.naturalHeight;
+          const newCssW = physW / dpr;
+          const newCssH = physH / dpr;
+          // Resize canvas + container when the teacher's PDF size differs from current size
+          const needsResize = c.width !== physW || c.height !== physH;
+          if (needsResize) {
+            c.width = physW;
+            c.height = physH;
+            c.style.width = `${newCssW}px`;
+            c.style.height = `${newCssH}px`;
+            setLogicalW(newCssW);
+            setLogicalH(newCssH);
           }
-          ctx.drawImage(img, 0, 0, cssW, cssH);
+          const freshCtx = c.getContext("2d");
+          if (!freshCtx) return;
+          if (needsResize) freshCtx.scale(dpr, dpr);
+          freshCtx.fillStyle = "#FFFFFF";
+          freshCtx.fillRect(0, 0, newCssW, newCssH);
+          freshCtx.drawImage(img, 0, 0, newCssW, newCssH);
         };
         img.src = stroke.dataURL;
+        if (stroke.textElements !== undefined) {
+          textElemsRef.current = stroke.textElements;
+          setTextElements(stroke.textElements);
+        }
         return;
       }
       if (stroke.action === "draw" && stroke.previousX != null && stroke.previousY != null && stroke.x != null && stroke.y != null) {
@@ -725,8 +884,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     const onMouseMove = (ev: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      d.currentX = d.origX + (ev.clientX - d.startClientX);
-      d.currentY = d.origY + (ev.clientY - d.startClientY);
+      const z = zoomRef.current;
+      d.currentX = Math.max(0, Math.min(d.origX + (ev.clientX - d.startClientX) / z, logicalWRef.current));
+      d.currentY = Math.max(0, Math.min(d.origY + (ev.clientY - d.startClientY) / z, logicalHRef.current));
       setDragPos({ id: d.id, x: d.currentX, y: d.currentY });
     };
     const onMouseUp = () => {
@@ -740,6 +900,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         textElemsRef.current = next;
         setTextElements(next);
         takeSnapshot();
+        flushAndResync();
       } else {
         setEditingId(d.id);
       }
@@ -750,7 +911,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     };
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [editingId, closeCurrentEditor, takeSnapshot]);
+  }, [editingId, closeCurrentEditor, takeSnapshot, flushAndResync]);
 
   // ── Delete text element ────────────────────────────────────────────────────
   const deleteEl = useCallback((e: React.MouseEvent, id: string) => {
@@ -760,7 +921,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setTextElements(next);
     if (editingId === id) setEditingId(null);
     takeSnapshot();
-  }, [editingId, takeSnapshot]);
+    flushAndResync();
+  }, [editingId, takeSnapshot, flushAndResync]);
 
   // ── Cursor ─────────────────────────────────────────────────────────────────
   const ep = thickness * 3;
@@ -968,14 +1130,82 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           >
             <Trash2 size={18} />
           </button>
+
+          <Divider />
+
+          <button
+            onClick={() => setZoom(z => Math.max(0.25, +(z - 0.25).toFixed(2)))}
+            title="Zoom out"
+            style={iconBtnStyle(false, zoom <= 0.25)}
+            disabled={zoom <= 0.25}
+          >
+            <span style={{ fontSize: 18, lineHeight: 1, fontWeight: 700 }}>−</span>
+          </button>
+          <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", whiteSpace: "nowrap", minWidth: "36px", textAlign: "center" }}>
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            onClick={() => setZoom(z => Math.min(3, +(z + 0.25).toFixed(2)))}
+            title="Zoom in"
+            style={iconBtnStyle(false, zoom >= 3)}
+            disabled={zoom >= 3}
+          >
+            <span style={{ fontSize: 18, lineHeight: 1, fontWeight: 700 }}>+</span>
+          </button>
         </div>
       )}
 
       {/* ── Canvas area ── */}
-      <div
-        ref={containerRef}
-        style={{ flex: 1, overflow: "auto", background: "#F3F4F6", padding: "24px", display: "flex", justifyContent: "flex-start", alignItems: "flex-start" }}
-      >
+      <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: "column", minHeight: 0 }}>
+        {readOnly && (
+          <div style={{
+            position: "absolute", bottom: 12, right: 12, zIndex: 20,
+            display: "flex", alignItems: "center", gap: 4,
+            background: "rgba(255,255,255,0.92)", borderRadius: 10,
+            border: "1px solid var(--border)", padding: "4px 8px",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.10)",
+          }}>
+            <button
+              onClick={() => setZoom(z => Math.max(0.25, +(z - 0.25).toFixed(2)))}
+              disabled={zoom <= 0.25}
+              title="Zoom out"
+              style={{ ...iconBtnStyle(false, zoom <= 0.25), padding: "4px 7px" }}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1, fontWeight: 700 }}>−</span>
+            </button>
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", minWidth: "36px", textAlign: "center" }}>
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              onClick={() => setZoom(z => Math.min(3, +(z + 0.25).toFixed(2)))}
+              disabled={zoom >= 3}
+              title="Zoom in"
+              style={{ ...iconBtnStyle(false, zoom >= 3), padding: "4px 7px" }}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1, fontWeight: 700 }}>+</span>
+            </button>
+          </div>
+        )}
+        <div
+          ref={containerRef}
+          style={{ flex: 1, overflow: "auto", background: "#F3F4F6", padding: "24px" }}
+        >
+        {/* Explicit-size scroll target so the scrollbar matches the zoomed visual size */}
+        <div style={{
+          width: `${logicalW * zoom}px`,
+          height: `${logicalH * zoom}px`,
+          flexShrink: 0,
+          position: "relative",
+        }}>
+        {/* CSS-scale wrapper — transform-origin top-left keeps (0,0) anchored */}
+        <div style={{
+          position: "absolute",
+          top: 0, left: 0,
+          transformOrigin: "top left",
+          transform: `scale(${zoom})`,
+          width: `${logicalW}px`,
+          height: `${logicalH}px`,
+        }}>
         {/* Page wrapper: sets the scroll/hit dimensions and positions both canvas layers + text */}
         <div style={{
           position: "relative",
@@ -1105,7 +1335,10 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
             );
           })}
         </div>
-      </div>
+        </div>{/* end CSS-scale wrapper */}
+        </div>{/* end scroll-size div */}
+        </div>{/* end containerRef scroll div */}
+      </div>{/* end canvas area flex wrapper */}
     </div>
   );
 });
