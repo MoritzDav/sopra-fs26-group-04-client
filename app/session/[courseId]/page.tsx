@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
-import WhiteboardCanvas, { StrokeEvent, WhiteboardCanvasHandle } from "@/components/WhiteboardCanvas";
+import WhiteboardCanvas, { StrokeEvent, WhiteboardCanvasHandle, TextElement } from "@/components/WhiteboardCanvas";
 import { ArrowLeft, MessageSquare, X, Send } from "lucide-react";
 import { useUser } from "@/contexts/UserContext";
 import { useApi } from "@/hooks/useApi";
@@ -60,6 +60,8 @@ function SessionPageInner() {
   const [savedSnapshot, setSavedSnapshot] = useState<string | undefined>();
   // Student-side: snapshot for the read-only teacher board
   const [teacherSnapshot, setTeacherSnapshot] = useState<string | undefined>();
+  // PDF file restored from sessionStorage (teacher only) so page navigation survives re-entry
+  const [sessionPdfFile, setSessionPdfFile] = useState<File | undefined>();
 
     // Split ratio between teacher's whiteboard (left) and personal whiteboard (right)
     const [splitRatio, setSplitRatio] = useState(0.5);
@@ -132,41 +134,98 @@ function SessionPageInner() {
     teacherBoardRef.current.applyRemoteStroke({ action: "snapshot", dataURL: teacherSnapshot });
   }, [teacherSnapshot]);
 
-  // Establish WebSocket connection to the whiteboard endpoint for this course
+  // Restore PDF from sessionStorage when a teacher re-enters their session.
+  useEffect(() => {
+    if (user?.role !== "TEACHER" || !sessionId) return;
+    const b64 = sessionStorage.getItem(`pdf_session_${sessionId}`);
+    if (!b64) return;
+    try {
+      const bytes = atob(b64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      const blob = new Blob([arr], { type: "application/pdf" });
+      setSessionPdfFile(new File([blob], "session.pdf", { type: "application/pdf" }));
+    } catch { /* ignore corrupt sessionStorage data */ }
+  }, [sessionId, user?.role]);
+
+  // Save PDF to sessionStorage when the teacher loads one, so it survives re-entry.
+  const handlePdfLoaded = useCallback((file: File) => {
+    if (!sessionId) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const b64 = result.split(",")[1];
+      if (b64) sessionStorage.setItem(`pdf_session_${sessionId}`, b64);
+    };
+    reader.readAsDataURL(file);
+  }, [sessionId]);
+
+  // Establish WebSocket connection to the whiteboard endpoint for this course.
+  // Auto-reconnects after 1 s if the connection drops (e.g. after a large snapshot message).
   useEffect(() => {
     if (!courseId || !user) return;
-    const ws = new WebSocket(getWhiteboardWebSocketUrl(courseId));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (wsRef as any).current = ws;
+    let destroyed = false;
+    let ws: WebSocket;
 
-    ws.onopen = () => console.log("Whiteboard WebSocket connected");
-    ws.onclose = () => console.log("Whiteboard WebSocket closed");
-    // Generic WebSocket error events don't carry useful info — log a warning instead of error
-    ws.onerror = () => console.warn("Whiteboard WebSocket could not connect (backend WebSocket may not be running)");
+    const connect = () => {
+      if (destroyed) return;
+      ws = new WebSocket(getWhiteboardWebSocketUrl(courseId));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (wsRef as any).current = ws;
 
-    // Handle incoming strokes from the teacher (#29)
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        // Skip messages we sent ourselves to avoid double-drawing
-        if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
-        teacherBoardRef.current?.applyRemoteStroke({
-          action: msg.action,
-          x: msg.x,
-          y: msg.y,
-          previousX: msg.previousX,
-          previousY: msg.previousY,
-          color: msg.color,
-          size: msg.size,
-          dataURL: msg.dataURL,
-        });
-      } catch (err) {
-        console.error("Failed to parse incoming stroke", err);
-      }
+      ws.onopen = () => console.log("Whiteboard WebSocket connected");
+      ws.onclose = () => {
+        console.log("Whiteboard WebSocket closed — reconnecting in 1 s");
+        if (!destroyed) setTimeout(connect, 1000);
+      };
+      ws.onerror = () => console.warn("Whiteboard WebSocket could not connect (backend WebSocket may not be running)");
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
+
+          // resync signal: size=-999 is an impossible stroke size used as sentinel.
+          // Backend strips unknown fields but preserves standard draw fields like size.
+          if (msg.action === "draw" && msg.size === -999) {
+            apiService.get<{ canvasSnapshot?: string }>(
+              `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
+              user.token ?? undefined,
+            ).then(data => {
+              if (data.canvasSnapshot) {
+                teacherBoardRef.current?.applyRemoteStroke({
+                  action: "snapshot",
+                  dataURL: data.canvasSnapshot,
+                });
+              }
+            }).catch(() => { /* non-critical */ });
+            return;
+          }
+
+          if (msg.size !== -999) {
+            teacherBoardRef.current?.applyRemoteStroke({
+              action: msg.action,
+              x: msg.x,
+              y: msg.y,
+              previousX: msg.previousX,
+              previousY: msg.previousY,
+              color: msg.color,
+              size: msg.size,
+              dataURL: msg.dataURL,
+              textElements: msg.textElements,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to parse incoming stroke", err);
+        }
+      };
     };
 
+    connect();
+
     return () => {
-      ws.close();
+      destroyed = true;
+      ws?.close();
       wsRef.current = null;
     };
   }, [courseId, user]);
@@ -223,7 +282,7 @@ function SessionPageInner() {
     }));
   }, [courseId, user?.id]);
 
-  // Persist the teacher's whiteboard state to the backend (called debounced from WhiteboardCanvas).
+  // Persist the teacher's whiteboard state to the backend (debounced during drawing).
   const handleSaveSnapshot = useCallback(async (dataURL: string) => {
     if (!courseId || !sessionId || !user?.token) return;
     try {
@@ -234,6 +293,26 @@ function SessionPageInner() {
       );
     } catch { /* non-critical — drawing still works even if save fails */ }
   }, [courseId, sessionId, user?.token, apiService]);
+
+  // Called after undo/redo/text/clear: save to backend FIRST, then send a tiny
+  // "resync" WS message. Students fetch the new state via HTTP — no large WS payload.
+  const handleResync = useCallback(async (composite: string, textElements: TextElement[]) => {
+    await handleSaveSnapshot(composite);
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      action: "draw",
+      x: 0,
+      y: 0,
+      previousX: 0,
+      previousY: 0,
+      color: "#000000",
+      size: -999,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+  }, [handleSaveSnapshot, courseId, user?.id]);
   //distribute Brownie Points
   const giveBrowniePoint = async (studentId: number) => {
       setStudents(prev =>
@@ -273,7 +352,8 @@ function SessionPageInner() {
           backdropFilter: "blur(20px)",
           borderBottom: "1px solid var(--border)",
           boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-          zIndex: 10,
+          zIndex: 50,
+          position: "relative",
         }}>
           <button
             onClick={() => router.back()}
@@ -380,8 +460,11 @@ function SessionPageInner() {
           <WhiteboardCanvas
             onStroke={handleTeacherStroke}
             fullHeight={false}
-            initialSnapshot={savedSnapshot}
+            initialSnapshot={sessionPdfFile ? undefined : savedSnapshot}
             onCompositeSnapshot={handleSaveSnapshot}
+            onResync={handleResync}
+            pdfFile={sessionPdfFile}
+            onPdfLoaded={handlePdfLoaded}
           />
         </div>
 
