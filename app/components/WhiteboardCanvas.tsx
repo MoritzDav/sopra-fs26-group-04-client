@@ -54,6 +54,10 @@ export interface StrokeEvent {
 
 export interface WhiteboardCanvasHandle {
   applyRemoteStroke: (stroke: StrokeEvent) => void;
+  /** Synchronously capture the raw annotation layer (strokes only, no PDF background) plus text elements. */
+  captureAnnotations: () => { offscreen: HTMLCanvasElement | null; textElements: TextElement[] };
+  /** Synchronously restore a previously captured annotation layer onto the draw canvas. */
+  restoreAnnotations: (offscreen: HTMLCanvasElement | null, textElements: TextElement[]) => void;
 }
 
 interface WhiteboardCanvasProps {
@@ -745,6 +749,31 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   }, [takeSnapshot, flushAndResync]);
 
   useImperativeHandle(ref, () => ({
+    captureAnnotations: () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return { offscreen: null, textElements: [] };
+      const offscreen = document.createElement("canvas");
+      offscreen.width = canvas.width;
+      offscreen.height = canvas.height;
+      const ctx = offscreen.getContext("2d");
+      if (ctx) ctx.drawImage(canvas, 0, 0);
+      return { offscreen, textElements: [...textElemsRef.current] };
+    },
+    restoreAnnotations: (offscreen: HTMLCanvasElement | null, elements: TextElement[]) => {
+      if (!offscreen) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const dpr = dprRef.current;
+      const cssW = canvas.width / dpr;
+      const cssH = canvas.height / dpr;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, cssW, cssH);
+      ctx.drawImage(offscreen, 0, 0, cssW, cssH);
+      textElemsRef.current = elements;
+      setTextElements(elements);
+      takeSnapshot();
+    },
     applyRemoteStroke: (stroke: StrokeEvent) => {
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx || !canvasRef.current) return;
@@ -807,7 +836,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.stroke();
       }
     },
-  }), []);
+  }), [takeSnapshot]);
 
   // ── Formatting ─────────────────────────────────────────────────────────────
   const applyFormat = useCallback((e: React.MouseEvent, command: string) => {
@@ -1074,8 +1103,6 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           {allowPdf && (
             <>
               <Divider />
-
-              {/* PDF upload + page navigation (teacher only) */}
               <label
                 title="Load PDF"
                 style={{ ...iconBtnStyle(false), cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
@@ -1092,33 +1119,34 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
                   }}
                 />
               </label>
+            </>
+          )}
 
-              {hasPdf && (
-                <>
-                  <button
-                    onClick={() => switchToPage(currentPage - 1)}
-                    disabled={currentPage <= 1}
-                    title="Previous page"
-                    style={iconBtnStyle(false, currentPage <= 1)}
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span style={{
-                    fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)",
-                    whiteSpace: "nowrap", padding: "0 2px", minWidth: "48px", textAlign: "center",
-                  }}>
-                    {currentPage} / {totalPages}
-                  </span>
-                  <button
-                    onClick={() => switchToPage(currentPage + 1)}
-                    disabled={currentPage >= totalPages}
-                    title="Next page"
-                    style={iconBtnStyle(false, currentPage >= totalPages)}
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </>
-              )}
+          {hasPdf && (
+            <>
+              {!allowPdf && <Divider />}
+              <button
+                onClick={() => switchToPage(currentPage - 1)}
+                disabled={currentPage <= 1}
+                title="Previous page"
+                style={iconBtnStyle(false, currentPage <= 1)}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span style={{
+                fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)",
+                whiteSpace: "nowrap", padding: "0 2px", minWidth: "48px", textAlign: "center",
+              }}>
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => switchToPage(currentPage + 1)}
+                disabled={currentPage >= totalPages}
+                title="Next page"
+                style={iconBtnStyle(false, currentPage >= totalPages)}
+              >
+                <ChevronRight size={16} />
+              </button>
             </>
           )}
 
