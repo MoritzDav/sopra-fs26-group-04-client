@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import WhiteboardCanvas, { StrokeEvent, WhiteboardCanvasHandle, TextElement } from "@/components/WhiteboardCanvas";
-import { ArrowLeft, MessageSquare, X, Send } from "lucide-react";
+import { ArrowLeft, MessageSquare, X, Send, Folder, Upload, FileText, Download } from "lucide-react";
 import { useUser } from "@/contexts/UserContext";
 import { useApi } from "@/hooks/useApi";
 import { getWhiteboardWebSocketUrl, getWebSocketDomain } from "@/utils/websocket";
@@ -16,6 +16,15 @@ interface ChatMessage {
   username: string;
   content: string;
   timestamp: string;
+}
+
+interface SessionFile {
+  id: number;
+  fileName: string;
+  fileType: string;
+  data: string;
+  uploadedAt: string;
+  sessionId: number;
 }
 
 //Students in Session
@@ -42,6 +51,8 @@ function SessionPageInner() {
   const wsRef = useRef<WebSocket | null>(null);
   // Ref to the teacher's whiteboard on the student side (for applying remote strokes)
   const teacherBoardRef = useRef<WhiteboardCanvasHandle | null>(null);
+  // Ref to the teacher's own editable whiteboard (for captureAnnotations / restoreAnnotations)
+  const teacherEditBoardRef = useRef<WhiteboardCanvasHandle | null>(null);
 
   //Student Dropdown
   const [students, setStudents] = useState<StudentEntry[]>([]);
@@ -63,7 +74,34 @@ function SessionPageInner() {
   // PDF file restored from sessionStorage (teacher only) so page navigation survives re-entry
   const [sessionPdfFile, setSessionPdfFile] = useState<File | undefined>();
 
-    // Split ratio between teacher's whiteboard (left) and personal whiteboard (right)
+    // Files panel state
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [sessionFiles, setSessionFiles] = useState<SessionFile[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [fileUploading, setFileUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Student-only local files (not sent to backend, only visible to this student)
+  const [studentLocalFiles, setStudentLocalFiles] = useState<File[]>([]);
+  const studentLocalFileInputRef = useRef<HTMLInputElement | null>(null);
+  // Ref mirror of sessionFiles so callbacks can read current value without stale closures
+  const sessionFilesRef = useRef<SessionFile[]>([]);
+  // When set to true, the next onPdfLoaded call (triggered by setSessionPdfFile) skips the upload
+  const skipNextPdfUploadRef = useRef(false);
+  // Student's personal whiteboard ref and PDF state
+  const studentBoardRef = useRef<WhiteboardCanvasHandle | null>(null);
+  const [studentPdfFile, setStudentPdfFile] = useState<File | undefined>();
+  // Per-PDF annotation cache: filename → { offscreen canvas copy, textElements }
+  type AnnotationSnapshot = { offscreen: HTMLCanvasElement | null; textElements: TextElement[] };
+  const pdfAnnotationsRef = useRef<Map<string, AnnotationSnapshot>>(new Map());
+  const studentPdfAnnotationsRef = useRef<Map<string, AnnotationSnapshot>>(new Map());
+  // Annotations to restore after the next PDF finishes loading
+  const teacherPendingRestoreRef = useRef<AnnotationSnapshot | null>(null);
+  const studentPendingRestoreRef = useRef<AnnotationSnapshot | null>(null);
+  // Stable refs to current PDF names so callbacks don't capture stale closure values
+  const sessionPdfFileRef = useRef<File | undefined>(undefined);
+  const studentPdfFileRef = useRef<File | undefined>(undefined);
+
+  // Split ratio between teacher's whiteboard (left) and personal whiteboard (right)
     const [splitRatio, setSplitRatio] = useState(0.5);
     const splitContainerRef = useRef<HTMLDivElement | null>(null);
     const isDraggingSplit = useRef(false);
@@ -148,8 +186,33 @@ function SessionPageInner() {
     } catch { /* ignore corrupt sessionStorage data */ }
   }, [sessionId, user?.role]);
 
-  // Save PDF to sessionStorage when the teacher loads one, so it survives re-entry.
+  // Keep ref mirrors in sync so callbacks don't capture stale closures
+  useEffect(() => { sessionFilesRef.current = sessionFiles; }, [sessionFiles]);
+  useEffect(() => { sessionPdfFileRef.current = sessionPdfFile; }, [sessionPdfFile]);
+  useEffect(() => { studentPdfFileRef.current = studentPdfFile; }, [studentPdfFile]);
+
+  // Fetch files on mount so the list is ready before the panel is opened
+  useEffect(() => {
+    if (!sessionId || !user?.token || user.role !== "TEACHER") return;
+    apiService.get<SessionFile[]>(`/sessions/${sessionId}/files`, user.token)
+      .then(files => setSessionFiles(files))
+      .catch(() => {});
+  }, [sessionId, user?.token, user?.role, apiService]);
+
+  // Save PDF to sessionStorage when loaded, upload to backend if not already there,
+  // and restore any pending annotations from a previous PDF switch.
   const handlePdfLoaded = useCallback((file: File) => {
+    // Keep ref current so loadFileOnWhiteboard can identify the active PDF even when loaded via the toolbar
+    sessionPdfFileRef.current = file;
+    // Restore pending annotations FIRST — must happen before the sessionId guard
+    // because the restore is independent of backend logic.
+    const pending = teacherPendingRestoreRef.current;
+    if (pending) {
+      teacherPendingRestoreRef.current = null;
+      // 200 ms gives loadPdf time to clear the draw canvas and call takeSnapshot before we paint strokes back.
+      setTimeout(() => teacherEditBoardRef.current?.restoreAnnotations(pending.offscreen, pending.textElements), 200);
+    }
+    // --- backend / sessionStorage logic below requires a valid session ---
     if (!sessionId) return;
     const reader = new FileReader();
     reader.onload = () => {
@@ -158,7 +221,112 @@ function SessionPageInner() {
       if (b64) sessionStorage.setItem(`pdf_session_${sessionId}`, b64);
     };
     reader.readAsDataURL(file);
-  }, [sessionId]);
+    // Skip backend upload if triggered by setSessionPdfFile (Files tab or panel click)
+    if (skipNextPdfUploadRef.current) {
+      skipNextPdfUploadRef.current = false;
+      return;
+    }
+    // Upload to backend only if not already present (by name)
+    if (sessionFilesRef.current.some(f => f.fileName === file.name)) return;
+    if (!user?.token) return;
+    const form = new FormData();
+    form.append("file", file);
+    apiService.postForm<SessionFile>(`/sessions/${sessionId}/files`, form, user.token)
+      .then(uploaded => setSessionFiles(prev =>
+        prev.some(f => f.fileName === uploaded.fileName) ? prev : [...prev, uploaded]
+      ))
+      .catch(() => {});
+  }, [sessionId, user?.token, apiService]);
+
+  // Called when the student's personal whiteboard loads a PDF — restores pending annotations.
+  const handleStudentPdfLoaded = useCallback((_file: File) => {
+    const pending = studentPendingRestoreRef.current;
+    if (!pending) return;
+    studentPendingRestoreRef.current = null;
+    setTimeout(() => studentBoardRef.current?.restoreAnnotations(pending.offscreen, pending.textElements), 80);
+  }, []);
+
+  const fetchSessionFiles = useCallback(async () => {
+    if (!sessionId || !user?.token) return;
+    setFilesLoading(true);
+    try {
+      const files = await apiService.get<SessionFile[]>(`/sessions/${sessionId}/files`, user.token);
+      setSessionFiles(files);
+    } catch {
+      // non-critical — panel will show empty state
+    } finally {
+      setFilesLoading(false);
+    }
+  }, [sessionId, user?.token, apiService]);
+
+  // Upload a PDF to backend AND load it on the whiteboard.
+  const handleFileUpload = useCallback(async (file: File) => {
+    if (!sessionId || !user?.token) return;
+    setFileUploading(true);
+    // Save current annotations before switching to the new PDF
+    const currentName = sessionPdfFileRef.current?.name;
+    if (currentName) {
+      const snap = teacherEditBoardRef.current?.captureAnnotations();
+      if (snap?.offscreen) pdfAnnotationsRef.current.set(currentName, snap);
+    }
+    teacherPendingRestoreRef.current = pdfAnnotationsRef.current.get(file.name) ?? null;
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const uploaded = await apiService.postForm<SessionFile>(`/sessions/${sessionId}/files`, form, user.token);
+      setSessionFiles(prev =>
+        prev.some(f => f.fileName === uploaded.fileName) ? prev : [...prev, uploaded]
+      );
+      skipNextPdfUploadRef.current = true; // prevent handlePdfLoaded from re-uploading
+      setSessionPdfFile(file);
+    } catch {
+      alert("Upload failed. Make sure the file is a PDF.");
+    } finally {
+      setFileUploading(false);
+    }
+  }, [sessionId, user?.token, apiService]);
+
+  // Load a file from the panel list onto the whiteboard without re-uploading.
+  // Captures current annotations first so they survive the PDF switch.
+  const loadFileOnWhiteboard = useCallback((f: SessionFile) => {
+    const isTeacher = user?.role === "TEACHER";
+    const boardRef = isTeacher ? teacherEditBoardRef : studentBoardRef;
+    const annotationsMap = isTeacher ? pdfAnnotationsRef : studentPdfAnnotationsRef;
+    const pendingRef = isTeacher ? teacherPendingRestoreRef : studentPendingRestoreRef;
+    const currentName = (isTeacher ? sessionPdfFileRef : studentPdfFileRef).current?.name;
+
+    // Save current annotations before switching away
+    if (currentName) {
+      const snap = boardRef.current?.captureAnnotations();
+      if (snap?.offscreen) annotationsMap.current.set(currentName, snap);
+    }
+    // Queue annotations to restore when the new PDF finishes loading
+    pendingRef.current = annotationsMap.current.get(f.fileName) ?? null;
+
+    const bytes = atob(f.data);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    const blob = new Blob([arr], { type: f.fileType });
+    skipNextPdfUploadRef.current = true;
+    const file = new File([blob], f.fileName, { type: f.fileType });
+    if (isTeacher) {
+      setSessionPdfFile(file);
+    } else {
+      setStudentPdfFile(file);
+    }
+  }, [user?.role]);
+
+  // Load a student's own local file onto their personal whiteboard (no backend upload).
+  const loadStudentLocalFile = useCallback((file: File) => {
+    const currentName = studentPdfFileRef.current?.name;
+    if (currentName) {
+      const snap = studentBoardRef.current?.captureAnnotations();
+      if (snap?.offscreen) studentPdfAnnotationsRef.current.set(currentName, snap);
+    }
+    studentPendingRestoreRef.current = studentPdfAnnotationsRef.current.get(file.name) ?? null;
+    skipNextPdfUploadRef.current = true;
+    setStudentPdfFile(file);
+  }, []);
 
   // Establish WebSocket connection to the whiteboard endpoint for this course.
   // Auto-reconnects after 1 s if the connection drops (e.g. after a large snapshot message).
@@ -441,6 +609,19 @@ function SessionPageInner() {
               </div>
 
               <button
+                onClick={() => { setFilesOpen(true); fetchSessionFiles(); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: "6px",
+                  background: "rgba(91,108,255,0.08)",
+                  border: "1px solid rgba(91,108,255,0.15)",
+                  color: "#5B6CFF", padding: "6px 12px",
+                  borderRadius: "8px", fontSize: "13px",
+                  fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                <Folder size={14} /> Files
+              </button>
+              <button
                 onClick={() => setChatOpen(true)}
                 style={{
                   display: "flex", alignItems: "center", gap: "6px",
@@ -458,6 +639,7 @@ function SessionPageInner() {
         {/* Teacher whiteboard fills remaining space */}
         <div style={{ flex: 1, overflow: "hidden" }}>
           <WhiteboardCanvas
+            ref={teacherEditBoardRef}
             onStroke={handleTeacherStroke}
             fullHeight={false}
             initialSnapshot={sessionPdfFile ? undefined : savedSnapshot}
@@ -466,6 +648,98 @@ function SessionPageInner() {
             pdfFile={sessionPdfFile}
             onPdfLoaded={handlePdfLoaded}
           />
+        </div>
+
+        {/* ── Files overlay backdrop ── */}
+        {filesOpen && (
+          <div
+            onClick={() => setFilesOpen(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.15)", zIndex: 90 }}
+          />
+        )}
+
+        {/* ── Files side panel ── */}
+        <div style={{
+          position: "fixed", top: 0, right: 0, height: "100vh", width: "380px",
+          background: "white", boxShadow: "-8px 0 24px rgba(0,0,0,0.12)", zIndex: 100,
+          transform: filesOpen ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.3s ease", display: "flex", flexDirection: "column",
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "16px 20px", borderBottom: "1px solid var(--border)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Folder size={18} style={{ color: "#5B6CFF" }} />
+              <span style={{ fontSize: "16px", fontWeight: 600, color: "#1A1A2E" }}>Session Files</span>
+            </div>
+            <button
+              onClick={() => setFilesOpen(false)}
+              style={{ background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: "6px", color: "#6B7280", display: "flex", alignItems: "center" }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            {filesLoading ? (
+              <p style={{ color: "#9CA3AF", textAlign: "center", fontSize: "13px", marginTop: "24px" }}>Loading…</p>
+            ) : sessionFiles.length === 0 ? (
+              <p style={{ color: "#9CA3AF", textAlign: "center", fontSize: "13px", marginTop: "24px" }}>No files uploaded yet.</p>
+            ) : (
+              sessionFiles.map(f => (
+                <div
+                  key={f.id}
+                  onClick={() => loadFileOnWhiteboard(f)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "10px",
+                    padding: "10px 12px", borderRadius: "8px",
+                    border: "1px solid var(--border)", cursor: "pointer",
+                    color: "#1A1A2E", fontSize: "13px",
+                    background: "rgba(91,108,255,0.04)",
+                  }}
+                >
+                  <FileText size={16} style={{ color: "#5B6CFF", flexShrink: 0 }} />
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}</span>
+                  <a
+                    href={`data:${f.fileType};base64,${f.data}`}
+                    download={f.fileName}
+                    onClick={e => e.stopPropagation()}
+                    title="Download"
+                    style={{ color: "#9CA3AF", display: "flex", alignItems: "center", flexShrink: 0 }}
+                  >
+                    <Download size={14} />
+                  </a>
+                </div>
+              ))
+            )}
+          </div>
+          <div style={{ padding: "16px", borderTop: "1px solid var(--border)" }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              style={{ display: "none" }}
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={fileUploading}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+                gap: "8px", padding: "10px", borderRadius: "8px",
+                background: fileUploading ? "rgba(91,108,255,0.4)" : "#5B6CFF",
+                color: "white", border: "none", fontSize: "13px", fontWeight: 600,
+                cursor: fileUploading ? "not-allowed" : "pointer",
+              }}
+            >
+              <Upload size={14} />
+              {fileUploading ? "Uploading…" : "Upload PDF"}
+            </button>
+          </div>
         </div>
 
         {/* ── Chat overlay backdrop ── */}
@@ -638,6 +912,24 @@ function SessionPageInner() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <button
+            onClick={() => { setFilesOpen(true); fetchSessionFiles(); }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              background: "rgba(91,108,255,0.08)",
+              border: "1px solid rgba(91,108,255,0.15)",
+              color: "#5B6CFF",
+              padding: "6px 12px",
+              borderRadius: "8px",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            <Folder size={14} /> Files
+          </button>
+          <button
             onClick={() => setChatOpen(true)}
             style={{
               display: "flex",
@@ -732,9 +1024,169 @@ function SessionPageInner() {
                 boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
                 background: "white",
             }}>
-                <WhiteboardCanvas fullHeight={false} label="Your Personal Notes" allowPdf={false} />
+                <WhiteboardCanvas
+                  ref={studentBoardRef}
+                  fullHeight={false}
+                  label="Your Personal Notes"
+                  allowPdf={false}
+                  pdfFile={studentPdfFile}
+                  onPdfLoaded={handleStudentPdfLoaded}
+                />
             </div>
         </div>
+
+      {/* ── Files overlay backdrop ── */}
+      {filesOpen && (
+        <div
+          onClick={() => setFilesOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.15)", zIndex: 90 }}
+        />
+      )}
+
+      {/* ── Files side panel ── */}
+      <div style={{
+        position: "fixed", top: 0, right: 0, height: "100vh", width: "380px",
+        background: "white", boxShadow: "-8px 0 24px rgba(0,0,0,0.12)", zIndex: 100,
+        transform: filesOpen ? "translateX(0)" : "translateX(100%)",
+        transition: "transform 0.3s ease", display: "flex", flexDirection: "column",
+      }}>
+        {/* Panel header */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "16px 20px", borderBottom: "1px solid var(--border)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Folder size={18} style={{ color: "#5B6CFF" }} />
+            <span style={{ fontSize: "16px", fontWeight: 600, color: "#1A1A2E" }}>Session Files</span>
+          </div>
+          <button
+            onClick={() => setFilesOpen(false)}
+            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: "6px", color: "#6B7280", display: "flex", alignItems: "center" }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* File list */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          {filesLoading ? (
+            <p style={{ color: "#9CA3AF", textAlign: "center", fontSize: "13px", marginTop: "24px" }}>Loading…</p>
+          ) : sessionFiles.length === 0 ? (
+            <p style={{ color: "#9CA3AF", textAlign: "center", fontSize: "13px", marginTop: "24px" }}>No files uploaded yet.</p>
+          ) : (
+            sessionFiles.map(f => (
+              <div
+                key={f.id}
+                onClick={() => loadFileOnWhiteboard(f)}
+                style={{
+                  display: "flex", alignItems: "center", gap: "10px",
+                  padding: "10px 12px", borderRadius: "8px",
+                  border: "1px solid var(--border)", cursor: "pointer",
+                  color: "#1A1A2E", fontSize: "13px",
+                  background: "rgba(91,108,255,0.04)",
+                }}
+              >
+                <FileText size={16} style={{ color: "#5B6CFF", flexShrink: 0 }} />
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}</span>
+                <a
+                  href={`data:${f.fileType};base64,${f.data}`}
+                  download={f.fileName}
+                  onClick={e => e.stopPropagation()}
+                  title="Download"
+                  style={{ color: "#9CA3AF", display: "flex", alignItems: "center", flexShrink: 0 }}
+                >
+                  <Download size={14} />
+                </a>
+              </div>
+            ))
+          )}
+        </div>
+
+        {user?.role === "TEACHER" && (
+          <div style={{ padding: "16px", borderTop: "1px solid var(--border)" }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              style={{ display: "none" }}
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={fileUploading}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+                gap: "8px", padding: "10px", borderRadius: "8px",
+                background: fileUploading ? "rgba(91,108,255,0.4)" : "#5B6CFF",
+                color: "white", border: "none", fontSize: "13px", fontWeight: 600,
+                cursor: fileUploading ? "not-allowed" : "pointer",
+              }}
+            >
+              <Upload size={14} />
+              {fileUploading ? "Uploading…" : "Upload PDF"}
+            </button>
+          </div>
+        )}
+        {user?.role !== "TEACHER" && (
+          <div style={{ borderTop: "1px solid var(--border)" }}>
+            {/* My Files section — local only, not shared */}
+            {studentLocalFiles.length > 0 && (
+              <div style={{ padding: "12px 16px 0", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "180px", overflowY: "auto" }}>
+                <span style={{ fontSize: "11px", fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.05em" }}>My Files</span>
+                {studentLocalFiles.map((f, i) => (
+                  <div
+                    key={i}
+                    onClick={() => loadStudentLocalFile(f)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: "10px",
+                      padding: "8px 10px", borderRadius: "8px",
+                      border: "1px solid var(--border)", cursor: "pointer",
+                      color: "#1A1A2E", fontSize: "13px",
+                      background: "rgba(16,185,129,0.04)",
+                    }}
+                  >
+                    <FileText size={14} style={{ color: "#10B981", flexShrink: 0 }} />
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ padding: "12px 16px 16px" }}>
+              <input
+                ref={studentLocalFileInputRef}
+                type="file"
+                accept="application/pdf"
+                style={{ display: "none" }}
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setStudentLocalFiles(prev => prev.some(f => f.name === file.name) ? prev : [...prev, file]);
+                    loadStudentLocalFile(file);
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <button
+                onClick={() => studentLocalFileInputRef.current?.click()}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: "8px", padding: "10px", borderRadius: "8px",
+                  background: "rgba(16,185,129,0.1)", color: "#059669",
+                  border: "1px solid rgba(16,185,129,0.3)", fontSize: "13px", fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <Upload size={14} />
+                Upload My PDF
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Chat overlay backdrop ── */}
       {chatOpen && (

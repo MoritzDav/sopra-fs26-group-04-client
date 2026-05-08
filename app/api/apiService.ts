@@ -120,6 +120,20 @@ export class ApiService {
   }
 
   /**
+   * POST request with multipart/form-data body (e.g. file uploads).
+   * Do NOT set Content-Type — the browser must set it with the boundary.
+   */
+  public async postForm<T>(endpoint: string, formData: FormData, token?: string): Promise<T> {
+    const url = `${this.baseURL}${endpoint}`;
+    const headers: Record<string, string> = {
+      "Access-Control-Allow-Origin": "*",
+      ...(token ? { Authorization: token } : {}),
+    };
+    const res = await fetch(url, { method: "POST", headers, body: formData });
+    return this.processResponse<T>(res, "An error occurred while uploading the file.\n");
+  }
+
+  /**
    * DELETE request.
    * @param endpoint - The API endpoint (e.g. "/users/123").
    * @returns JSON data of type T.
