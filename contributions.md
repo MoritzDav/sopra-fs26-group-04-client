@@ -126,7 +126,7 @@ reason).
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@Meimira](https://github.com/Meimira)** | [10.05]   | [c023b9f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/76/changes/c023b9f5b38ade642d0e917dc4476527c001eaef) | A PDF of the teachers whiteboard is permanently stored in the course after they ended the session. | User story 9 |
+| **[@Meimira](https://github.com/Meimira)** | [10.05]   | [c023b9f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/76/changes/c023b9f5b38ade642d0e917dc4476527c001eaef) | A PDF of the teachers whiteboard is permanently stored in the course after they ended the session. + Some UI improvement (view PR for details) | User story 9 |
 |                    | [10.05]   | [14cad8b](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/76/changes/14cad8b199a8d43701453d4cb5280bca378e4ada) | Students can now download a PDF of the session when they leave or the teacher ends it. The PDF shows a split page of the teacher and personal version. | User story 9 |
 | **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
