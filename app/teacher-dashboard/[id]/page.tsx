@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 // import { useApi } from "@/hooks/useApi";
 import { Button, Card, App, Modal, Input, Upload } from "antd"
-import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined, UploadOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined, MailOutlined, CopyOutlined, UploadOutlined } from "@ant-design/icons";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
 import { getApiDomain } from "@/utils/domain"
@@ -249,15 +249,22 @@ function TeacherDashboardInner() {
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
               <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>{course.description}</p>
-              <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-light)", display: "flex", alignItems: "center", gap: "6px" }}>
                 Code: {course.courseCode}
+                <Button
+                  icon={<CopyOutlined />}
+                  size="small"
+                  type="text"
+                  style={{ padding: "0 4px", height: "auto" }}
+                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(course.courseCode); message.success("Code copied!"); }}
+                />
               </span>
 
               {/* Actions */}
               <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
-                  <Button icon={<EditOutlined />} size="small" onClick={(e) => { e.stopPropagation(); handleEdit(e, course.courseId); }}/>
-                  <Button icon={<DeleteOutlined />} size="small" danger onClick={(e) => handleDelete(e, course.courseId)} />
+                <Button icon={<EditOutlined />} size="small" onClick={(e) => { e.stopPropagation(); handleEdit(e, course.courseId); }}/>
                 <Button icon={<ShareAltOutlined />} size="small" onClick={(e) => handleShare(e, course.courseId)}/>
+                <Button icon={<DeleteOutlined />} size="small" danger onClick={(e) => handleDelete(e, course.courseId)} />
               </div>
             </Card>
           ))}
@@ -398,14 +405,24 @@ function TeacherDashboardInner() {
                 open={qrModalOpen}
                 onCancel={() => setQrModalOpen(false)}
                 footer={null}
-                title={`Course Code: ${sharedCourseCode}`}
+                title={
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    {`Course Code: ${sharedCourseCode}`}
+                    <Button
+                      icon={<CopyOutlined />}
+                      size="small"
+                      type="text"
+                      onClick={() => { navigator.clipboard.writeText(sharedCourseCode ?? ""); message.success("Code copied!"); }}
+                    />
+                  </span>
+                }
             >
                 {qrCode && <img src={qrCode} alt="QR Code" style={{ width: "100%" }} />}
                 <a
                     href={`mailto:?subject=Join my course&body=Use code ${sharedCourseCode} to join! Link: https://sopra-fs26-group-04-client.vercel.app/joinCourse?code=${sharedCourseCode}`}
                     style={{ display: "block", marginTop: 12, textAlign: "center" }}
                 >
-                    <Button icon={<ShareAltOutlined />}>Share via Outlook</Button>
+                    <Button icon={<MailOutlined />}>Share via Mail</Button>
                 </a>
             </Modal>
         </div>

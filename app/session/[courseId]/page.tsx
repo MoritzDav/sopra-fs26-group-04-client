@@ -58,6 +58,7 @@ function SessionPageInner() {
   const [students, setStudents] = useState<StudentEntry[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [courseCode, setCourseCode] = useState<string>("");
+  const [sessionEnded, setSessionEnded] = useState(false);
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -398,6 +399,21 @@ function SessionPageInner() {
     };
   }, [courseId, user]);
 
+  // Check on mount if session is already ended (prevents joining an ended session)
+  useEffect(() => {
+    if (user?.role === "TEACHER" || !sessionId || !courseId || !user?.token) return;
+    (async () => {
+      try {
+        const sessions = await apiService.get<Array<{ sessionId: number; active: boolean }>>(
+          `/courses/${courseId}/sessions`,
+          user.token ?? undefined
+        );
+        const current = sessions.find(s => s.sessionId === Number(sessionId));
+        if (current && !current.active) setSessionEnded(true);
+      } catch { /* non-critical */ }
+    })();
+  }, [sessionId, courseId, user?.role, user?.token, apiService]);
+
   //load students for this course
   useEffect(() => {
     if (!user?.token || !courseId) return;
@@ -519,6 +535,40 @@ function SessionPageInner() {
     setChatInput("");
   };
 
+  //end session as a teacher
+  const handleEndSession = async () => {
+    try {
+      await apiService.put(
+        `/courses/${courseId}/sessions/${sessionId}/end`,
+        {},
+        user?.token ?? undefined
+      );
+      console.log("Session ended successfully");
+    } catch (err) { console.error("Failed to end session:", err); }
+    router.back();
+  };
+
+
+  // Students: poll every 5s to detect when teacher ends the session (if live then websocket and backend change)
+  useEffect(() => {
+    if (user?.role === "TEACHER" || !sessionId || !courseId) return;
+    const interval = setInterval(async () => {
+      try {
+        const sessions = await apiService.get<Array<{ sessionId: number; active: boolean }>>(
+          `/courses/${courseId}/sessions`,
+          user?.token ?? undefined
+        );
+        const current = sessions.find(s => s.sessionId === Number(sessionId));
+        console.log("Poll — current session:", current);
+        if (current && !current.active) {
+          setSessionEnded(true);
+          clearInterval(interval);
+        }
+      } catch (err) { console.error("Poll error:", err); }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [sessionId, courseId, user?.role, user?.token, apiService]);
+
   const role = user?.role ?? "";
 
   // Teachers see their full-screen whiteboard + header + chat; students see the split view
@@ -539,14 +589,14 @@ function SessionPageInner() {
           position: "relative",
         }}>
           <button
-            onClick={() => router.back()}
+            onClick={handleEndSession}
             style={{
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              background: "rgba(91,108,255,0.08)",
-              border: "1px solid rgba(91,108,255,0.15)",
-              color: "#5B6CFF",
+              background: "rgba(239,68,68,0.08)",
+              border: "1px solid rgba(239,68,68,0.25)",
+              color: "#EF4444",
               padding: "6px 12px",
               borderRadius: "8px",
               fontSize: "13px",
@@ -554,7 +604,7 @@ function SessionPageInner() {
               cursor: "pointer",
             }}
           >
-            <ArrowLeft size={14} /> Leave Session
+            <ArrowLeft size={14} /> End Session
           </button>
             <div style={{ fontSize: "15px", fontWeight: 600, color: "#1A1A2E" }}>
                 {sessionTitle}
@@ -883,6 +933,52 @@ function SessionPageInner() {
               }}
             >
               <Send size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+ //show "Session has ended" screen to student
+  if (sessionEnded) {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        height: "100vh",
+        background: "rgba(15, 15, 30, 0.92)",
+        backdropFilter: "blur(6px)",
+      }}>
+        <div style={{
+          background: "#1A1A2E", borderRadius: "20px", padding: "52px 60px",
+          boxShadow: "0 8px 40px rgba(0,0,0,0.5)", textAlign: "center", maxWidth: "440px",
+          border: "1px solid rgba(255,255,255,0.08)",
+        }}>
+          <div style={{ fontSize: "52px", marginBottom: "20px" }}>🎓</div>
+          <h2 style={{ margin: "0 0 12px", fontSize: "22px", color: "#F9FAFB", fontWeight: 700 }}>
+            The teacher ended this session
+          </h2>
+          <p style={{ margin: "0 0 36px", color: "#9CA3AF", fontSize: "14px", lineHeight: 1.6 }}>
+            Thanks for participating! You can save your whiteboard or return to the course.
+          </p>
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+            <button
+              style={{
+                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+                color: "#E5E7EB", padding: "11px 20px", borderRadius: "10px",
+                fontSize: "14px", fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              Save own whiteboard as PDF
+            </button>
+            <button
+              onClick={() => router.back()}
+              style={{
+                background: "#5B6CFF", border: "none", color: "white",
+                padding: "11px 20px", borderRadius: "10px",
+                fontSize: "14px", fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              ← Back to course page
             </button>
           </div>
         </div>

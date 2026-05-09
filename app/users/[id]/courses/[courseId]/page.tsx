@@ -6,6 +6,7 @@ import { App, Button, Card, Input, Modal } from "antd";
 import { ArrowLeft, PlayCircle, BookOpen, Plus } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
+import { jsPDF } from "jspdf";
 
 interface Session {
   id: number;
@@ -99,7 +100,7 @@ export default function CoursePage() {
             id: s.sessionId,
             title: s.title ?? `Session #${s.sessionId}`,
             status: (s.active ? "live" : "ended") as Session["status"],
-            startedAt: s.active ? "Active" : "Ended",
+            startedAt: s.active ? "Active" : undefined,
           }))
         );
       } catch (err) {
@@ -117,6 +118,25 @@ export default function CoursePage() {
     const session = sessions.find(s => s.id === sessionId);
     const title = encodeURIComponent(session?.title ?? `Session #${sessionId}`);
     router.push(`/session/${courseId}?sessionId=${sessionId}&title=${title}`);
+  };
+
+ //view PDF of teacher whiteboard in new tab
+  const handleViewPdf = async (sessionId: number) => {
+    try {
+      const data = await apiService.get<{ canvasSnapshot?: string }>(
+        `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
+        user?.token ?? undefined
+      );
+      if (!data.canvasSnapshot) { message.warning("No whiteboard content available for this session."); return; }
+      const img = new Image();
+      img.src = data.canvasSnapshot;
+      await new Promise(resolve => { img.onload = resolve; });
+      const pdf = new jsPDF({ orientation: img.width > img.height ? "landscape" : "portrait", unit: "px", format: [img.width, img.height] });
+      pdf.addImage(data.canvasSnapshot, "PNG", 0, 0, img.width, img.height);
+      const blob = pdf.output("blob");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch { message.error("Could not load whiteboard PDF."); }
   };
 
   // Opens modal to name the new session
@@ -273,7 +293,7 @@ export default function CoursePage() {
                 opacity: session.status === "ended" ? 0.7 : 1,
                 flexShrink: 0,
               }}
-              onClick={() => session.status !== "upcoming" && handleJoinSession(session.id)}
+              onClick={() => (session.status === "live" || (session.status === "ended" && isTeacher)) && handleJoinSession(session.id)}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -318,9 +338,9 @@ export default function CoursePage() {
                   {session.status === "ended" && (
                     <Button
                       icon={<BookOpen size={14} />}
-                      onClick={(e) => { e.stopPropagation(); handleJoinSession(session.id); }}
+                      onClick={(e) => { e.stopPropagation(); handleViewPdf(session.id); }}
                     >
-                      View
+                      View PDF
                     </Button>
                   )}
                   {session.status === "upcoming" && (
