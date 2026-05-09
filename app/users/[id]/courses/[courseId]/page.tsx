@@ -62,47 +62,43 @@ export default function CoursePage() {
         const course = await apiService.get<{ title: string; courseCode: string }>(`/courses/${courseId}`);
         setCourseTitle(course.title);
 
-        const leaderboard = await apiService.get<LeaderboardEntry[]>(
-            `/courses/${courseId}/leaderboard`,
-            user.token ?? undefined
+        const [leaderboard, enrollments] = await Promise.all([
+          apiService.get<LeaderboardEntry[]>(`/courses/${courseId}/leaderboard`, user.token ?? undefined),
+          apiService.get<Array<{ studentId: number }>>(`/courses/${course.courseCode}/students`, user.token ?? undefined),
+        ]);
+        const userDetails = await Promise.all(
+          enrollments.map(e =>
+            apiService.get<{ id: number; firstName: string; lastName: string; username: string }>(
+              `/users/${e.studentId}`, user?.token ?? undefined
+            )
+          )
         );
-        if (leaderboard.length > 0) {
-          setStudents(leaderboard);
-        } else {
-          const enrollments = await apiService.get<Array<{ studentId: number }>>(
-              `/courses/${course.courseCode}/students`,
-              user.token ?? undefined
-          );
-          const userDetails = await Promise.all(
-              enrollments.map(e =>
-                  apiService.get<{ id: number; firstName: string; lastName: string; username: string }>(
-                      `/users/${e.studentId}`,
-                      user?.token ?? undefined
-                  )
-              )
-          );
-          setStudents(enrollments.map((e, i) => ({
-              userId: e.studentId,
-              username: userDetails[i].username ?? "",
-              firstName: userDetails[i].firstName,
-              lastName: userDetails[i].lastName,
-              totalPoints: 0,
-          })));
-        }
+        const pointsMap = new Map(leaderboard.map(e => [e.userId, e.totalPoints]));
+        const merged: LeaderboardEntry[] = enrollments.map((e, i) => ({
+          userId: e.studentId,
+          username: userDetails[i].username ?? "",
+          firstName: userDetails[i].firstName,
+          lastName: userDetails[i].lastName,
+          totalPoints: pointsMap.get(e.studentId) ?? 0,
+        }));
+        merged.sort((a, b) => b.totalPoints - a.totalPoints);
+        setStudents(merged);
       } catch (err) { console.error("Leaderboard error:", err); }
       //} catch { /* non-critical */ }
     })();
-    // Fetch sessions for this course from backend
+    // Fetch sessions for this course
     (async () => {
       try {
-        const data = await apiService.get<SessionGetDTO[]>(`/courses/${courseId}/sessions`, user?.token ?? undefined);        setSessions(
-          data.map((s) => ({
-            id: s.sessionId,
-            title: s.title ?? `Session #${s.sessionId}`,
-            status: (s.active ? "live" : "ended") as Session["status"],
-            startedAt: s.active ? "Active" : undefined,
-          }))
-        );
+        const data = await apiService.get<SessionGetDTO[]>(`/courses/${courseId}/sessions`, user?.token ?? undefined);
+        const mapped = data.map((s) => ({
+          id: s.sessionId,
+          title: s.title ?? `Session #${s.sessionId}`,
+          status: (s.active ? "live" : "ended") as Session["status"],
+          startedAt: s.active ? "Active" : undefined,
+        }));
+        // Live sessions always appear first; ended sessions keep their original order.
+        mapped.sort((a, b) => (a.status === "live" ? -1 : b.status === "live" ? 1 : 0));
+        setSessions(mapped);
       } catch (err) {
         if (err instanceof Error) {
           console.error("Failed to load sessions:", err.message);

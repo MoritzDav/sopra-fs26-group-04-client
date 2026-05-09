@@ -7,6 +7,7 @@ import { ArrowLeft, MessageSquare, X, Send, Folder, Upload, FileText, Download }
 import { useUser } from "@/contexts/UserContext";
 import { useApi } from "@/hooks/useApi";
 import { getWhiteboardWebSocketUrl, getWebSocketDomain } from "@/utils/websocket";
+import { jsPDF } from "jspdf";
 
 // Incoming chat message shape from backend ChatMessageGetDTO
 interface ChatMessage {
@@ -59,6 +60,7 @@ function SessionPageInner() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [courseCode, setCourseCode] = useState<string>("");
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [leaveReason, setLeaveReason] = useState<"teacher" | "self">("teacher");
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -90,6 +92,14 @@ function SessionPageInner() {
   const skipNextPdfUploadRef = useRef(false);
   // Student's personal whiteboard ref and PDF state
   const studentBoardRef = useRef<WhiteboardCanvasHandle | null>(null);
+  const studentSnapshotRef = useRef<string | undefined>(undefined);
+  // Accumulates teacher whiteboard snapshots per page on the student side.
+  // Populated from the backend HTTP fetch triggered by each resync WS signal.
+  // Key = teacher PDF page number, value = composite PNG data URL.
+  const teacherPageSnapsRef = useRef<Map<number, string>>(new Map());
+  // Tracks which PDF page the teacher is currently on (updated via onPageChange callback).
+  // Included in resync WS messages so students know which page to index the snapshot under.
+  const teacherCurrentPageRef = useRef<number>(1);
   const [studentPdfFile, setStudentPdfFile] = useState<File | undefined>();
   // Per-PDF annotation cache: filename → { offscreen canvas copy, textElements }
   type AnnotationSnapshot = { offscreen: HTMLCanvasElement | null; textElements: TextElement[] };
@@ -170,6 +180,7 @@ function SessionPageInner() {
   // Apply fetched teacher snapshot to the read-only board once both are available.
   useEffect(() => {
     if (!teacherSnapshot || !teacherBoardRef.current) return;
+    teacherPageSnapsRef.current.set(1, teacherSnapshot);
     teacherBoardRef.current.applyRemoteStroke({ action: "snapshot", dataURL: teacherSnapshot });
   }, [teacherSnapshot]);
 
@@ -357,11 +368,15 @@ function SessionPageInner() {
           // resync signal: size=-999 is an impossible stroke size used as sentinel.
           // Backend strips unknown fields but preserves standard draw fields like size.
           if (msg.action === "draw" && msg.size === -999) {
+            // resync: teacher saved a new state — fetch it from backend and store
+            // under the teacher's current page number so the PDF can reference it later.
+            const pageNum: number = msg.teacherPageNum ?? 1;
             apiService.get<{ canvasSnapshot?: string }>(
               `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
               user.token ?? undefined,
             ).then(data => {
               if (data.canvasSnapshot) {
+                teacherPageSnapsRef.current.set(pageNum, data.canvasSnapshot);
                 teacherBoardRef.current?.applyRemoteStroke({
                   action: "snapshot",
                   dataURL: data.canvasSnapshot,
@@ -508,6 +523,7 @@ function SessionPageInner() {
       previousY: 0,
       color: "#000000",
       size: -999,
+      teacherPageNum: teacherCurrentPageRef.current, // students use this to index the fetched snapshot
       courseId: Number(courseId),
       userId: user?.id ? Number(user.id) : null,
       timestamp: Date.now(),
@@ -712,6 +728,7 @@ function SessionPageInner() {
             onResync={handleResync}
             pdfFile={sessionPdfFile}
             onPdfLoaded={handlePdfLoaded}
+            onPageChange={(pn) => { teacherCurrentPageRef.current = pn; }}
           />
         </div>
 
@@ -955,13 +972,76 @@ function SessionPageInner() {
         }}>
           <div style={{ fontSize: "52px", marginBottom: "20px" }}>🎓</div>
           <h2 style={{ margin: "0 0 12px", fontSize: "22px", color: "#F9FAFB", fontWeight: 700 }}>
-            The teacher ended this session
+            {leaveReason === "self" ? "You left the session." : "The teacher ended this session"}
           </h2>
           <p style={{ margin: "0 0 36px", color: "#9CA3AF", fontSize: "14px", lineHeight: 1.6 }}>
             Thanks for participating! You can save your whiteboard or return to the course.
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
             <button
+              onClick={async () => {
+                // Render all student whiteboard pages to PNG data URLs.
+                // Falls back to the last live snapshot if no PDF was loaded.
+                const studentPages = await (studentBoardRef.current?.getAllPageSnapshots() ?? Promise.resolve([]));
+                if (studentSnapshotRef.current && studentPages.length === 0) {
+                  studentPages.push(studentSnapshotRef.current);
+                }
+
+                // Reconstruct an ordered teacher page array from the accumulated snapshot map.
+                // Pages the teacher never navigated to are filled with the last known snapshot
+                // so there are no unexpected blank halves.
+                const snapsMap = teacherPageSnapsRef.current;
+                const maxPage = snapsMap.size > 0 ? Math.max(...snapsMap.keys()) : 0;
+                const teacherPages: string[] = [];
+                let lastKnown = "";
+                for (let i = 1; i <= maxPage; i++) {
+                  const s = snapsMap.get(i);
+                  if (s) lastKnown = s;
+                  teacherPages.push(lastKnown);
+                }
+
+                const totalPages = Math.max(teacherPages.length, studentPages.length);
+                if (totalPages === 0) return;
+
+                // Infer the half-page dimensions from the first available snapshot
+                // (fall back to A4 portrait pixel dimensions if nothing is available).
+                const firstSrc = teacherPages[0] || studentPages[0] || "";
+                const halfW = await new Promise<number>(res => {
+                  if (!firstSrc) { res(1190); return; }
+                  const img = new Image();
+                  img.onload = () => res(img.naturalWidth || 1190);
+                  img.onerror = () => res(1190);
+                  img.src = firstSrc;
+                });
+                const halfH = await new Promise<number>(res => {
+                  if (!firstSrc) { res(1684); return; }
+                  const img = new Image();
+                  img.onload = () => res(img.naturalHeight || 1684);
+                  img.onerror = () => res(1684);
+                  img.src = firstSrc;
+                });
+
+                // Each PDF page is landscape with the teacher board on the left half
+                // and the student board on the right half.
+                const pdfW = halfW * 2;
+                const pdfH = halfH;
+                const pdf = new jsPDF({ orientation: "landscape", unit: "px", format: [pdfW, pdfH] });
+
+                for (let i = 0; i < totalPages; i++) {
+                  if (i > 0) pdf.addPage([pdfW, pdfH], "landscape");
+                  const tSrc = teacherPages[i] ?? "";
+                  const sSrc = studentPages[i] ?? "";
+                  if (tSrc) pdf.addImage(tSrc, "PNG", 0, 0, halfW, halfH);
+                  if (sSrc) pdf.addImage(sSrc, "PNG", halfW, 0, halfW, halfH);
+                  // Thin grey divider at the centre boundary between the two halves
+                  pdf.setDrawColor(180, 180, 180);
+                  pdf.setLineWidth(1);
+                  pdf.line(halfW, 0, halfW, halfH);
+                }
+
+                const name = `${sessionTitle}_${user?.firstName}_${user?.lastName}`.replace(/\s+/g, "_");
+                pdf.save(`${name}.pdf`);
+              }}
               style={{
                 background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
                 color: "#E5E7EB", padding: "11px 20px", borderRadius: "10px",
@@ -1001,7 +1081,7 @@ function SessionPageInner() {
         zIndex: 10,
       }}>
         <button
-          onClick={() => router.back()}
+          onClick={() => { setLeaveReason("self"); setSessionEnded(true); }}
           style={{
             display: "flex",
             alignItems: "center",
@@ -1142,6 +1222,7 @@ function SessionPageInner() {
                   allowPdf={false}
                   pdfFile={studentPdfFile}
                   onPdfLoaded={handleStudentPdfLoaded}
+                  onCompositeSnapshot={(url) => { studentSnapshotRef.current = url; }}
                 />
             </div>
         </div>
