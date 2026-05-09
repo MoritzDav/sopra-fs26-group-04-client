@@ -398,18 +398,34 @@ function SessionPageInner() {
     };
   }, [courseId, user]);
 
-  //load students live in session
-  // replace with GET /sessions/{sessionId}/participants once backend implements it
+  //load students for this course
   useEffect(() => {
-    if (!user?.token || !sessionId) return;
+    if (!user?.token || !courseId) return;
     (async () => {
       try {
-        // const activeUserIds: number[] = await apiService.get(`/sessions/${sessionId}/participants`, user.token ?? undefined);
-        // hardcoded until backend endpoint exists
-        setStudents([{ id: 999, firstName: "Test", lastName: "Student", browniePoints: 0 }]);
+        const course = await apiService.get<{ courseCode: string }>(`/courses/${courseId}`);
+        setCourseCode(course.courseCode);
+        const enrollments = await apiService.get<Array<{ studentId: number }>>(
+            `/courses/${course.courseCode}/students`,
+            user.token ?? undefined
+        );
+        const userDetails = await Promise.all(
+            enrollments.map(e =>
+                apiService.get<{ id: number; firstName: string; lastName: string }>(
+                    `/users/${e.studentId}`,
+                    user?.token ?? undefined
+                )
+            )
+        );
+        setStudents(enrollments.map((e, i) => ({
+            id: e.studentId,
+            firstName: userDetails[i].firstName,
+            lastName: userDetails[i].lastName,
+            browniePoints: 0,
+        })));
       } catch { /* non-critical */ }
     })();
-  }, [sessionId, user?.token, apiService]);
+  }, [courseId, user?.token, apiService]);
 
   // Establish WebSocket connection to the chat endpoint for this session
   useEffect(() => {
@@ -487,11 +503,10 @@ function SessionPageInner() {
           prev.map(s => s.id === studentId ? { ...s, browniePoints: (s.browniePoints ?? 0) + 1 } : s)
       );
       try {
-          const updated = await apiService.post<{ browniePoints: number }>(
-              `/users/${studentId}/browniePoints`, {}, user?.token ?? undefined
-          );
-          setStudents(prev =>
-              prev.map(s => s.id === studentId ? { ...s, browniePoints: updated.browniePoints } : s)
+          await apiService.post(
+              `/courses/${courseId}/sessions/${sessionId}/browniepoints`,
+              { studentId, points: 1 },
+              user?.token ?? undefined
           );
       } catch { /* optimistic update stays if backend fails */ }
   };

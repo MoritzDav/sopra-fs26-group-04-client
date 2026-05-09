@@ -22,15 +22,13 @@ interface SessionGetDTO {
   courseId?: number;
 }
 
-// Response from backend GET /courses/{courseCode}/students (StudentsGetDTO)
-interface CourseEnrollment {
-  id: number;
-  studentId: number;
-  courseId: number;
-  joinedDate: string;
+// for GET /courses/{courseId}/leaderboard
+interface LeaderboardEntry {
+  userId: number;
+  username: string;
   firstName: string;
   lastName: string;
-  browniePoints: number;
+  totalPoints: number;
 }
 
 export default function CoursePage() {
@@ -47,7 +45,7 @@ export default function CoursePage() {
   const [newSessionTitle, setNewSessionTitle] = useState("");
   const [newSessionPdfFile, setNewSessionPdfFile] = useState<File | null>(null);
   const [courseTitle, setCourseTitle] = useState<string>("");
-  const [students, setStudents] = useState<CourseEnrollment[]>([]);
+  const [students, setStudents] = useState<LeaderboardEntry[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -57,31 +55,41 @@ export default function CoursePage() {
     }
     if (!user || !user.token) return;
 
-    // Fetch course info and enrolled students
+    // Fetch course info
     (async () => {
       try {
         const course = await apiService.get<{ title: string; courseCode: string }>(`/courses/${courseId}`);
         setCourseTitle(course.title);
-        //fetch enrolled students
-        const enrollments = await apiService.get<CourseEnrollment[]>(`/courses/${course.courseCode}/students`, user.token ?? undefined);
-        const userDetails = await Promise.all( //promise ensures, that all users get fetched at once
-            enrollments.map(e =>
-                apiService.get<{ id: number; firstName: string; lastName: string; browniePoints: number }>(
-                    `/users/${e.studentId}`,
-                    user?.token ?? undefined
-                )
-            )
-        )
-        const mapped = enrollments.map((e, i) => ({
-              ...e,
+
+        const leaderboard = await apiService.get<LeaderboardEntry[]>(
+            `/courses/${courseId}/leaderboard`,
+            user.token ?? undefined
+        );
+        if (leaderboard.length > 0) {
+          setStudents(leaderboard);
+        } else {
+          const enrollments = await apiService.get<Array<{ studentId: number }>>(
+              `/courses/${course.courseCode}/students`,
+              user.token ?? undefined
+          );
+          const userDetails = await Promise.all(
+              enrollments.map(e =>
+                  apiService.get<{ id: number; firstName: string; lastName: string; username: string }>(
+                      `/users/${e.studentId}`,
+                      user?.token ?? undefined
+                  )
+              )
+          );
+          setStudents(enrollments.map((e, i) => ({
+              userId: e.studentId,
+              username: userDetails[i].username ?? "",
               firstName: userDetails[i].firstName,
               lastName: userDetails[i].lastName,
-              browniePoints: userDetails[i].browniePoints ?? 0,
-            }));
-        // hardcoded test student — remove once real session participants are wired up
-        mapped.push({ id: 999, studentId: 999, courseId: Number(courseId), joinedDate: "", firstName: "Test", lastName: "Student", browniePoints: 0 });
-        setStudents(mapped);
-      } catch { /* non-critical */ }
+              totalPoints: 0,
+          })));
+        }
+      } catch (err) { console.error("Leaderboard error:", err); }
+      //} catch { /* non-critical */ }
     })();
     // Fetch sessions for this course from backend
     (async () => {
@@ -354,7 +362,7 @@ export default function CoursePage() {
                   {students[1] && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                         <span style={{ fontSize: "11px" }}>{students[1].firstName} {students[1].lastName}</span>
-                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[1].browniePoints ?? 0} 🍪</span>
+                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[1].totalPoints ?? 0} 🍪</span>
                         <div style={{ background: "#C0C0C0", width: "60px", height: "40px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700 }}>2</div>
                       </div>
                   )}
@@ -363,7 +371,7 @@ export default function CoursePage() {
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                     <span style={{ fontSize: "16px" }}>👑</span>
                     <span style={{ fontSize: "11px", fontWeight: 600 }}>{students[0].firstName} {students[0].lastName}</span>
-                    <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[0].browniePoints ?? 0} 🍪</span>
+                    <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[0].totalPoints ?? 0} 🍪</span>
                     <div style={{ background: "#FFD700", width: "60px", height: "60px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: "18px" }}>1</div>
                   </div>
 
@@ -371,7 +379,7 @@ export default function CoursePage() {
                   {students[2] && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                         <span style={{ fontSize: "11px" }}>{students[2].firstName} {students[2].lastName}</span>
-                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[2].browniePoints ?? 0} 🍪</span>
+                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[2].totalPoints ?? 0} 🍪</span>
                         <div style={{ background: "#CD7F32", width: "60px", height: "28px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700 }}>3</div>
                       </div>
                   )}
@@ -380,7 +388,7 @@ export default function CoursePage() {
 
             {/* Bar for all students */}
             {students.map((s, i) => (
-                <div key={s.id} style={{
+                <div key={s.userId} style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "8px 12px", background: "rgba(0,0,0,0.06)",
                   borderRadius: "8px", border: "1px solid rgba(91,108,255,0.1)"
@@ -396,7 +404,7 @@ export default function CoursePage() {
                     </span>
                     <span>{s.firstName} {s.lastName}</span>
                   </div>
-                  <span style={{ fontWeight: 600 }}>{s.browniePoints ?? 0} 🍪</span>
+                  <span style={{ fontWeight: 600 }}>{s.totalPoints ?? 0} 🍪</span>
                 </div>
             ))}
 
