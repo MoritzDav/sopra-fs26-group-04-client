@@ -109,8 +109,8 @@ reason).
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@Meimira](https://github.com/Meimira)** | [03.05]   | [32882d9](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/63/changes/32882d95e8f6e7157f2c8eeb78b8ab048db365fe) | Add student leaderboard to course page | User story 5 |
+|                    | [date]   | [9fb0bd7](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/63/changes/9fb0bd7fd0fccd6fd39eae4427ac7a255a6b127c) | Give a teacher the option to distribute brownie points for any student inside a session. | User story 5 |
 | **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 
@@ -126,8 +126,8 @@ reason).
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@Meimira](https://github.com/Meimira)** | [10.05]   | [c023b9f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/76/changes/c023b9f5b38ade642d0e917dc4476527c001eaef) | A PDF of the teachers whiteboard is permanently stored in the course after they ended the session. | User story 9 |
+|                    | [10.05]   | [14cad8b](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/76/changes/14cad8b199a8d43701453d4cb5280bca378e4ada) | Studnets can now download a PDF of the session when they leave or the teacher ends it. The PDF shows a split page of the teacher and personal version. | User story 9 |
 | **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 
