@@ -82,7 +82,7 @@ reason).
 
 ---
 
-## Contributions Week 4 - [20.04] to [24.4]
+## Contributions Week 4 - [20.04] to [24.04]
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
@@ -99,12 +99,12 @@ reason).
 
 ---
 
-## Contributions Week 5 - [Begin Date] to [End Date]
+## Contributions Week 5 - [25.04] to [03.05]
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
-| **[@MoritzDav](https://github.com/MoritzDav)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@MoritzDav](https://github.com/MoritzDav)** | [29.04]   | [aea9990](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/60) | [added pdfs and multiple pages to the teachers whiteboard] | [to have multiple pages of content] |
+|                    | [03.05]   | [181da74](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/124/) | [Implemented WhiteBoardPageRepository and WhiteBoardStateDTO] | [So strokes and text is saved on the whiteboard after exiting the session] |
 | **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
@@ -116,12 +116,12 @@ reason).
 
 ---
 
-## Contributions Week 6 - [Begin Date] to [End Date]
+## Contributions Week 6 - [04.05] to [10.05]
 
 | **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
-| **[@MoritzDav](https://github.com/MoritzDav)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@MoritzDav](https://github.com/MoritzDav)** | [07.05]   | [4c5c147](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/152) | [added get and post pdf files in the session] | [Saves uploaded PDFs] |
+|                    | [07.05]   | [789f70f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/75) | [On session join, the teacher's pre-uploaded session material is fetched and added to the File System] | [To upload and share teachers PDF] |
 | **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
@@ -130,3 +130,22 @@ reason).
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+
+
+---
+
+## Contributions Week 7 - [11.05] to [17.05]
+
+| **Student**        | **Date** | **Link to Commit** | **Description**                 | **Relevance**                       |
+| ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
+| **[@MoritzDav](https://github.com/MoritzDav)** | [07.05]   | [789f70f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/75) | [Added page navigation controls (prev/next) to the student's personal whiteboard] | [So the students can browse through all pages of the teacher's uploaded material] |
+|                    | [07.05]   | [789f70f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/75) | [Added a folder icon button in the session header that opens a side panel displaying all pre-uploaded PDFs for the session, with the ability to upload additional files during the session] | [To upload files which students already worked on, or additional files like (Slides, Exercise, Assignment)] |
+| **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
+|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
+|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@Meimira](https://github.com/Meimira)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
+|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
+|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+
