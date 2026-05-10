@@ -105,14 +105,14 @@ reason).
 | ------------------ | -------- | ------------------ | ------------------------------- | ----------------------------------- |
 | **[@MoritzDav](https://github.com/MoritzDav)** | [29.04]   | [aea9990](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/60) | Added the possibility to upload PDFs with multiple pages to the teachers whiteboard | To have multiple pages of content like Slides |
 |                    | [03.05]   | [181da74](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/124/) | Implemented WhiteBoardPageRepository and WhiteBoardStateDTO | So strokes and text is saved on the whiteboard after exiting the session |
-| **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@AQuant1](https://github.com/AQuant1)** | [date]   | Joker  | [Brief description of the task] | [Why this contribution is relevant] |
+|                    | [date]   | Joker  | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@Bablandan](https://github.com/Bablandan)** | [02.05.]   | [6f1ecb](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/6f1ecbc5bf0de90d62f09ad5c0809b033810418c) | Creating BrowniePointEntry and repository | Necessary for our browniepoins leaderboard |
 |                    | [02.05.]   | [19a89a8](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/146/commits/19a89a8c85e886283f8ee5e98b3cbdfc52a35373) | Creating POST and GET endpoint to save an entry and fetch the whole leaderboard of a specific course | Makes entries and leaderboard for a course available |
 | **[@Meimira](https://github.com/Meimira)** | [03.05]   | [32882d9](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/63/changes/32882d95e8f6e7157f2c8eeb78b8ab048db365fe) | Add student leaderboard to course page | User story 5 |
 |                    | [date]   | [9fb0bd7](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/63/changes/9fb0bd7fd0fccd6fd39eae4427ac7a255a6b127c) | Give a teacher the option to distribute brownie points for any student inside a session. | User story 5 |
-| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | Joker  | [Brief description of the task] | [Why this contribution is relevant] |
+|                    | [date]   | Joker  | [Brief description of the task] | [Why this contribution is relevant] |
 
 ---
 
@@ -128,8 +128,8 @@ reason).
 |                    | [07.05.]   | [0073f37](https://github.com/MoritzDav/sopra-fs26-group-04-server/pull/151/changes/0073f37c055ee2f31dc09319404bb97a2ae3b078) | Setting up repo, service, DTOs such that broadcasting of a student whiteboard is possible | Necessary for our student based broadcast mode |
 | **[@Meimira](https://github.com/Meimira)** | [10.05]   | [c023b9f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/76/changes/c023b9f5b38ade642d0e917dc4476527c001eaef) | A PDF of the teachers whiteboard is permanently stored in the course after they ended the session. + Some UI improvement (view PR for details) | User story 9 |
 |                    | [10.05]   | [14cad8b](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/76/changes/14cad8b199a8d43701453d4cb5280bca378e4ada) | Students can now download a PDF of the session when they leave or the teacher ends it. The PDF shows a split page of the teacher and personal version. | User story 9 |
-| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [10.05]   | [e74f4a6](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/e74f4a69d73029cca018183b02cd9fab7f69c06b) | Add collaboration mode toggle/events | one of the main features of our whiteboard|
+|                    | [10.05]   | [42c8828](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/42c8828f852f0944b56c588b2a84c667248ca158) | PDF summarization via Gemini API | [it is our external API |
 
 
 ---
