@@ -78,8 +78,6 @@ export default function CoursePage() {
               lastName: userDetails[i].lastName,
               browniePoints: userDetails[i].browniePoints ?? 0,
             }));
-        // hardcoded test student — remove once real session participants are wired up
-        mapped.push({ id: 999, studentId: 999, courseId: Number(courseId), joinedDate: "", firstName: "Test", lastName: "Student", browniePoints: 0 });
         setStudents(mapped);
       } catch { /* non-critical */ }
     })();

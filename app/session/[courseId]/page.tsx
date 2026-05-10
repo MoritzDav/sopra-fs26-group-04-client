@@ -62,6 +62,10 @@ function SessionPageInner() {
   // #68: track which student's whiteboard the teacher has selected to display.
   // null means we are showing the teacher's own board (default).
   const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
+  // Ref mirror so the long-lived ws.onmessage closure can read the CURRENT selection
+  // (the closure is created once per WS connect; without this ref it would see stale state).
+  const selectedStudentIdRef = useRef<number | null>(null);
+  useEffect(() => { selectedStudentIdRef.current = selectedStudentId; }, [selectedStudentId]);
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -75,6 +79,11 @@ function SessionPageInner() {
   const [savedSnapshot, setSavedSnapshot] = useState<string | undefined>();
   // Student-side: snapshot for the read-only teacher board
   const [teacherSnapshot, setTeacherSnapshot] = useState<string | undefined>();
+  // #69: Per-student full-board snapshots, keyed by userId. Holds both the canvas drawing
+  // (dataURL) and any text elements the student added. Updated when a student broadcasts a
+  // student-snapshot (after resync events or on selection). Used so the teacher sees the
+  // student's entire whiteboard — drawings AND text — when selecting their tab.
+  const [studentSnapshots, setStudentSnapshots] = useState<Record<number, { dataURL: string; textElements: TextElement[] }>>({});
   // PDF file restored from sessionStorage (teacher only) so page navigation survives re-entry
   const [sessionPdfFile, setSessionPdfFile] = useState<File | undefined>();
 
@@ -175,6 +184,24 @@ function SessionPageInner() {
     if (!teacherSnapshot || !teacherBoardRef.current) return;
     teacherBoardRef.current.applyRemoteStroke({ action: "snapshot", dataURL: teacherSnapshot });
   }, [teacherSnapshot]);
+
+  // #69: Apply the latest cached snapshot whenever it changes for the currently selected
+  // student (or when selection itself changes). Crucially, do NOT clear the canvas otherwise —
+  // we want the previously loaded screen to remain across tab switches even if no fresh
+  // snapshot has arrived yet.
+  useEffect(() => {
+    if (!teacherBoardRef.current) return;
+    if (selectedStudentId === null && teacherSnapshot) {
+      teacherBoardRef.current.applyRemoteStroke({ action: "snapshot", dataURL: teacherSnapshot });
+    } else if (selectedStudentId !== null && studentSnapshots[selectedStudentId]) {
+      const s = studentSnapshots[selectedStudentId];
+      teacherBoardRef.current.applyRemoteStroke({
+        action: "snapshot",
+        dataURL: s.dataURL,
+        textElements: s.textElements,
+      });
+    }
+  }, [selectedStudentId, teacherSnapshot, studentSnapshots]);
 
   // Restore PDF from sessionStorage when a teacher re-enters their session.
   useEffect(() => {
@@ -359,7 +386,24 @@ function SessionPageInner() {
           // #68: select / deselect a student's whiteboard for everyone in the session.
           // Sync UI state on every client (including the teacher whose own action this is).
           if (msg.action === "select-student") {
-            setSelectedStudentId(typeof msg.studentId === "number" ? msg.studentId : null);
+            const newId = typeof msg.studentId === "number" ? msg.studentId : null;
+            setSelectedStudentId(newId);
+            // #69: If THIS client is the newly selected student, immediately broadcast a fresh
+            // snapshot of their personal whiteboard so the teacher (and everyone else) sees the
+            // student's CURRENT state on selection — not a stale debounced version.
+            if (newId !== null && Number(user?.id) === newId) {
+              const snap = studentBoardRef.current?.captureAnnotations();
+              if (snap?.offscreen && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({
+                  action: "student-snapshot",
+                  dataURL: snap.offscreen.toDataURL("image/jpeg", 0.6),
+                  textElements: snap.textElements ?? [],
+                  courseId: Number(courseId),
+                  userId: Number(user.id),
+                  timestamp: Date.now(),
+                }));
+              }
+            }
             return;
           }
           if (msg.action === "deselect-student") {
@@ -367,7 +411,27 @@ function SessionPageInner() {
             return;
           }
 
-          if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
+          // #69: Store latest student snapshot per userId — both the canvas dataURL and any
+          // text elements the student added. The selection-change effect picks this up so the
+          // teacher sees drawings AND text when switching tabs.
+          if (msg.action === "student-snapshot" && msg.dataURL && typeof msg.userId === "number") {
+            const senderId = msg.userId;
+            const dataURL = msg.dataURL as string;
+            const textElements = (Array.isArray(msg.textElements) ? msg.textElements : []) as TextElement[];
+            setStudentSnapshots(prev => ({ ...prev, [senderId]: { dataURL, textElements } }));
+            return;
+          }
+
+if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
+
+          // #69: Only render incoming strokes from the "expected sender" for the shared display.
+          // - If a student is selected, only that student's strokes are shown on the read-only board.
+          // - Otherwise, only the teacher's strokes are shown.
+          // teacherUserId may not be loaded yet on the very first message — fall through if undefined.
+          // Read selection from a ref so we see the LATEST value, not the stale closure capture.
+          const currentSelectedStudentId = selectedStudentIdRef.current;
+          const expectedSenderId = currentSelectedStudentId !== null ? currentSelectedStudentId : teacherUserId;
+          if (expectedSenderId !== undefined && Number(msg.userId) !== expectedSenderId) return;
 
           // resync signal: size=-999 is an impossible stroke size used as sentinel.
           // Backend strips unknown fields but preserves standard draw fields like size.
@@ -414,18 +478,45 @@ function SessionPageInner() {
     };
   }, [courseId, user]);
 
-  //load students live in session
-  // replace with GET /sessions/{sessionId}/participants once backend implements it
+  // #69: Load real enrolled students of the course so the teacher's "Select Whiteboard" tabs
+  // and the student dropdown are populated with actual users instead of a placeholder.
+  // Uses the existing endpoints: GET /courses/{id} (for the courseCode) →
+  // GET /courses/{courseCode}/students (enrollments) → GET /users/{id} per student.
+  // TODO: replace with GET /sessions/{sessionId}/participants once that backend endpoint exists.
   useEffect(() => {
-    if (!user?.token || !sessionId) return;
+    if (!user?.token || !courseId) return;
+    let cancelled = false;
     (async () => {
       try {
-        // const activeUserIds: number[] = await apiService.get(`/sessions/${sessionId}/participants`, user.token ?? undefined);
-        // hardcoded until backend endpoint exists
-        setStudents([{ id: 999, firstName: "Test", lastName: "Student", browniePoints: 0 }]);
-      } catch { /* non-critical */ }
+        const course = await apiService.get<{ courseCode: string }>(`/courses/${courseId}`);
+        if (cancelled) return;
+        setCourseCode(course.courseCode);
+        const enrollments = await apiService.get<Array<{ studentId: number }>>(
+          `/courses/${course.courseCode}/students`,
+          user.token ?? undefined,
+        );
+        if (cancelled) return;
+        const userDetails = await Promise.all(
+          enrollments.map(e =>
+            apiService.get<{ id: number; firstName: string; lastName: string; browniePoints?: number }>(
+              `/users/${e.studentId}`,
+              user.token ?? undefined,
+            ),
+          ),
+        );
+        if (cancelled) return;
+        setStudents(
+          userDetails.map(u => ({
+            id: u.id,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            browniePoints: u.browniePoints ?? 0,
+          })),
+        );
+      } catch { /* non-critical — leaves the list empty if anything fails */ }
     })();
-  }, [sessionId, user?.token, apiService]);
+    return () => { cancelled = true; };
+  }, [courseId, user?.token, apiService]);
 
   // Establish WebSocket connection to the chat endpoint for this session
   useEffect(() => {
@@ -466,6 +557,67 @@ function SessionPageInner() {
     }));
   }, [courseId, user?.id]);
 
+  // #69: Student broadcasts every stroke on their personal board, tagged with their userId.
+  // The teacher's expected-sender filter (selectedStudentId) routes only the selected student's
+  // strokes onto the teacher's read-only canvas. No new backend code needed — the WebSocket
+  // handler just forwards the message; the existing onmessage filter does the rest.
+  const handleStudentStroke = useCallback((stroke: StrokeEvent) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      ...stroke,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+  }, [courseId, user?.id]);
+
+  // #69: Student finished a non-stroke change (undo/redo/text/clear).
+  // Strategy (frontend-only, no backend changes for buffer size or storage):
+  //  1. Always broadcast a tiny "set-text" message — text elements are just a small array,
+  //     they fit comfortably in Spring's default ~8 KB WS text-message buffer.
+  //  2. Also send a JPEG-compressed "student-snapshot" so the teacher's view picks up drawing
+  //     changes (undo, eraser, etc.) the next time it re-applies the snapshot. May silently
+  //     fail for very busy boards — the live stroke broadcast already keeps drawings in sync,
+  //     so the snapshot is a "catch-up" mechanism, not the primary path.
+  const handleStudentResync = useCallback(async (composite: string, textElements: TextElement[]) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // 1. Small text-elements broadcast (always works)
+    ws.send(JSON.stringify({
+      action: "set-text",
+      textElements,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+    // 2. JPEG-compressed snapshot for drawing changes
+    const jpegDataURL = await new Promise<string>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const off = document.createElement("canvas");
+        off.width = img.naturalWidth;
+        off.height = img.naturalHeight;
+        const offCtx = off.getContext("2d");
+        if (!offCtx) return resolve(composite);
+        offCtx.fillStyle = "#FFFFFF";
+        offCtx.fillRect(0, 0, off.width, off.height);
+        offCtx.drawImage(img, 0, 0);
+        resolve(off.toDataURL("image/jpeg", 0.6));
+      };
+      img.onerror = () => resolve(composite);
+      img.src = composite;
+    });
+    ws.send(JSON.stringify({
+      action: "student-snapshot",
+      dataURL: jpegDataURL,
+      textElements,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+  }, [courseId, user?.id]);
+
   // #68: Teacher selects a student's whiteboard — broadcast to all session participants.
   // Update local state optimistically so the UI swaps immediately even if the WebSocket isn't connected yet.
   const handleSelectStudent = useCallback((studentId: number) => {
@@ -494,7 +646,7 @@ function SessionPageInner() {
     }));
   }, [courseId, user?.id]);
 
-  // Persist the teacher's whiteboard state to the backend (debounced during drawing).
+// Persist the teacher's whiteboard state to the backend (debounced during drawing).
   const handleSaveSnapshot = useCallback(async (dataURL: string) => {
     if (!courseId || !sessionId || !user?.token) return;
     try {
@@ -694,7 +846,8 @@ function SessionPageInner() {
           position: "relative",
           zIndex: 50,
         }}>
-          {/* "My Board" tab — leftmost, anchored */}
+          {/* "My Board" tab — leftmost, anchored. Teacher-green so it is visually distinct
+              from the student tabs (which use the default blue accent). */}
           {(() => {
             const isActive = selectedStudentId === null;
             return (
@@ -705,12 +858,12 @@ function SessionPageInner() {
                   alignItems: "center",
                   gap: "6px",
                   padding: "8px 14px",
-                  border: "1px solid var(--border)",
-                  borderBottom: isActive ? "2px solid #5B6CFF" : "1px solid var(--border)",
+                  border: "1px solid rgba(5,150,105,0.3)",
+                  borderBottom: isActive ? "2px solid #059669" : "1px solid rgba(5,150,105,0.3)",
                   borderTopLeftRadius: "8px",
                   borderTopRightRadius: "8px",
-                  background: isActive ? "white" : "rgba(255,255,255,0.5)",
-                  color: isActive ? "#5B6CFF" : "#6B7280",
+                  background: isActive ? "white" : "rgba(5,150,105,0.08)",
+                  color: "#059669",
                   fontSize: "13px",
                   fontWeight: isActive ? 600 : 500,
                   cursor: "pointer",
@@ -718,7 +871,7 @@ function SessionPageInner() {
                   flexShrink: 0,
                 }}
               >
-                🏠 My Board
+                My Board
               </button>
             );
           })()}
@@ -757,8 +910,18 @@ function SessionPageInner() {
         {/* Teacher whiteboard fills remaining space.
             #68: When a student is selected, show a placeholder card here instead.
             The actual rendering of the selected student's strokes lands in #69. */}
-        <div style={{ flex: 1, overflow: "hidden" }}>
-          {selectedStudentId === null ? (
+        {/* #69: Both canvases stay mounted. We just toggle visibility/interactivity so the
+            read-only snapshot of the selected student stays painted on its canvas across tab
+            switches. This way the last loaded screen never disappears when the teacher
+            switches between "My Board" and a student tab. */}
+        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+          {/* Teacher's editable board */}
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            visibility: selectedStudentId === null ? "visible" : "hidden",
+            pointerEvents: selectedStudentId === null ? "auto" : "none",
+          }}>
             <WhiteboardCanvas
               ref={teacherEditBoardRef}
               onStroke={handleTeacherStroke}
@@ -769,49 +932,26 @@ function SessionPageInner() {
               pdfFile={sessionPdfFile}
               onPdfLoaded={handlePdfLoaded}
             />
-          ) : (
-            (() => {
-              const s = students.find(st => st.id === selectedStudentId);
-              const name = s ? `${s.firstName} ${s.lastName}` : `Student #${selectedStudentId}`;
-              return (
-                <div style={{
-                  height: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "rgba(91,108,255,0.04)",
-                  border: "2px dashed rgba(91,108,255,0.25)",
-                  borderRadius: "12px",
-                  margin: "16px",
-                  padding: "24px",
-                  textAlign: "center",
-                }}>
-                  <div style={{ fontSize: "16px", fontWeight: 600, color: "#1A1A2E", marginBottom: "6px" }}>
-                    Showing {name}&apos;s whiteboard
-                  </div>
-                  <div style={{ fontSize: "13px", color: "#6B7280", marginBottom: "16px" }}>
-                    Live rendering of the selected student&apos;s board will be wired up in #69.
-                  </div>
-                  <button
-                    onClick={handleDeselectStudent}
-                    style={{
-                      background: "rgba(91,108,255,0.08)",
-                      border: "1px solid rgba(91,108,255,0.15)",
-                      color: "#5B6CFF",
-                      padding: "8px 14px",
-                      borderRadius: "10px",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    ← Go back to my whiteboard
-                  </button>
-                </div>
-              );
-            })()
-          )}
+          </div>
+
+          {/* Read-only board for the currently selected student. Always mounted so the
+              painted snapshot survives tab switches. */}
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            visibility: selectedStudentId !== null ? "visible" : "hidden",
+            pointerEvents: selectedStudentId !== null ? "auto" : "none",
+          }}>
+            <WhiteboardCanvas
+              ref={teacherBoardRef}
+              readOnly
+              fullHeight={false}
+              label={(() => {
+                const sel = students.find(s => s.id === selectedStudentId);
+                return sel ? `${sel.firstName} ${sel.lastName}'s Whiteboard` : "Selected Student's Whiteboard";
+              })()}
+            />
+          </div>
         </div>
 
         {/* ── Files overlay backdrop ── */}
@@ -1134,7 +1274,16 @@ function SessionPageInner() {
                 boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
                 background: "white",
             }}>
-                <WhiteboardCanvas ref={teacherBoardRef} readOnly fullHeight={false} label="Teacher's Whiteboard" />
+                <WhiteboardCanvas
+                  ref={teacherBoardRef}
+                  readOnly
+                  fullHeight={false}
+                  label={(() => {
+                    if (selectedStudentId === null) return "Teacher's Whiteboard";
+                    const sel = students.find(s => s.id === selectedStudentId);
+                    return sel ? `${sel.firstName} ${sel.lastName}'s Whiteboard` : "Selected Student's Whiteboard";
+                  })()}
+                />
             </div>
 
             {/* Draggable divider with thin line + rhombus indicator */}
@@ -1195,6 +1344,8 @@ function SessionPageInner() {
                   allowPdf={false}
                   pdfFile={studentPdfFile}
                   onPdfLoaded={handleStudentPdfLoaded}
+                  onStroke={handleStudentStroke}
+                  onResync={handleStudentResync}
                 />
             </div>
         </div>
