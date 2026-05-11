@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
 import { Button, Card, App } from "antd"
-import { PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined, CopyOutlined } from "@ant-design/icons";
 
 interface Course {
     courseId: number;
@@ -101,12 +101,16 @@ interface CourseGetDTO {
     // Fetch student's enrolled courses from backend
     (async () => {
       try {
-          const data = await apiService.get<CourseGetDTO[]>(`/users/${user.id}/courses`, user.token ?? undefined);        setCourses(data.map((c) => ({
+          const data = await apiService.get<CourseGetDTO[]>(`/users/${user.id}/courses`, user.token ?? undefined);
+          const teacherDetails = await Promise.all(
+              data.map(c => apiService.get<{ firstName: string; lastName: string }>(`/users/${c.teacherId}`, user.token ?? undefined))
+          );
+          setCourses(data.map((c, i) => ({
               courseId: c.id,
               title: c.title,
               description: c.description ?? "",
               courseCode: c.courseCode,
-              teacher: "",
+              teacher: `${teacherDetails[i].firstName} ${teacherDetails[i].lastName}`,
               pictureURL: c.pictureURL,
           })));
       } catch (err) {
@@ -159,10 +163,30 @@ interface CourseGetDTO {
       <div style={{ padding: "24px", width: "100%", position: "relative", zIndex: 1 }}>
         <h2 style={{ color: "var(--text)", marginBottom: "24px", position: "relative", zIndex: 1 }}>My Courses</h2>
 
+          {/* Join course when student is not enrolled in any course yet */}
+        {courses.length === 0 && (
+          <div style={{
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            height: "50vh", gap: "16px", textAlign: "center",
+          }}>
+            <p style={{ color: "var(--text-secondary)", fontSize: "15px", maxWidth: "320px", margin: 0 }}>
+              Start studying by joining a course with a code from your teacher.
+            </p>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/joinCourse")}>
+              Join Course
+            </Button>
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
           {courses.map(course => (
             <Card key={course.courseId} style={{ width: 280, cursor: "pointer" }} onClick={() => router.push(`/users/${urlId}/courses/${course.courseId}`)}>
               {/* Course Image */}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "4px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--text-light)" }}>
+                        by: {course.teacher}
+                    </span>
+                </div>
                 <div style={{
                     background: course.pictureURL
                         ? `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url(${course.pictureURL}) center/cover`
@@ -175,18 +199,22 @@ interface CourseGetDTO {
                     fontSize: "24px",
                     fontWeight: 700,
                     color: "white",
-                    marginBottom: "12px"
+                    marginBottom: "12px",
                 }}>
                     {course.title.split(" ").map(word => word[0]).join("").toUpperCase()}
                 </div>
               {/* Course Info */}
               <h3 style={{ margin: 0 }}>{course.title}</h3>
               <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>{course.description}</p>
-              <p style={{ color: "var(--text-secondary)", margin: "4px 0" }}>
-                {course.teacher}
-              </p>
-              <span style={{ fontSize: "12px", color: "var(--text-light)" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-light)", display: "flex", alignItems: "center", gap: "6px" }}>
                 Code: {course.courseCode}
+                <Button
+                  icon={<CopyOutlined />}
+                  size="small"
+                  type="text"
+                  style={{ padding: "0 4px", height: "auto" }}
+                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(course.courseCode); message.success("Code copied!"); }}
+                />
               </span>
             </Card>
           ))}
