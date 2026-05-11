@@ -6,6 +6,7 @@ import { App, Button, Card, Input, Modal } from "antd";
 import { ArrowLeft, PlayCircle, BookOpen, Plus } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
+import { jsPDF } from "jspdf";
 
 interface Session {
   id: number;
@@ -22,15 +23,13 @@ interface SessionGetDTO {
   courseId?: number;
 }
 
-// Response from backend GET /courses/{courseCode}/students (StudentsGetDTO)
-interface CourseEnrollment {
-  id: number;
-  studentId: number;
-  courseId: number;
-  joinedDate: string;
+// for GET /courses/{courseId}/leaderboard
+interface LeaderboardEntry {
+  userId: number;
+  username: string;
   firstName: string;
   lastName: string;
-  browniePoints: number;
+  totalPoints: number;
 }
 
 export default function CoursePage() {
@@ -47,7 +46,7 @@ export default function CoursePage() {
   const [newSessionTitle, setNewSessionTitle] = useState("");
   const [newSessionPdfFile, setNewSessionPdfFile] = useState<File | null>(null);
   const [courseTitle, setCourseTitle] = useState<string>("");
-  const [students, setStudents] = useState<CourseEnrollment[]>([]);
+  const [students, setStudents] = useState<LeaderboardEntry[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -57,43 +56,49 @@ export default function CoursePage() {
     }
     if (!user || !user.token) return;
 
-    // Fetch course info and enrolled students
+    // Fetch course info
     (async () => {
       try {
         const course = await apiService.get<{ title: string; courseCode: string }>(`/courses/${courseId}`);
         setCourseTitle(course.title);
-        //fetch enrolled students
-        const enrollments = await apiService.get<CourseEnrollment[]>(`/courses/${course.courseCode}/students`, user.token ?? undefined);
-        const userDetails = await Promise.all( //promise ensures, that all users get fetched at once
-            enrollments.map(e =>
-                apiService.get<{ id: number; firstName: string; lastName: string; browniePoints: number }>(
-                    `/users/${e.studentId}`,
-                    user?.token ?? undefined
-                )
+
+        const [leaderboard, enrollments] = await Promise.all([
+          apiService.get<LeaderboardEntry[]>(`/courses/${courseId}/leaderboard`, user.token ?? undefined),
+          apiService.get<Array<{ studentId: number }>>(`/courses/${course.courseCode}/students`, user.token ?? undefined),
+        ]);
+        const userDetails = await Promise.all(
+          enrollments.map(e =>
+            apiService.get<{ id: number; firstName: string; lastName: string; username: string }>(
+              `/users/${e.studentId}`, user?.token ?? undefined
             )
-        )
-        const mapped = enrollments.map((e, i) => ({
-              ...e,
-              firstName: userDetails[i].firstName,
-              lastName: userDetails[i].lastName,
-              browniePoints: userDetails[i].browniePoints ?? 0,
-            }));
-        // hardcoded test student — remove once real session participants are wired up
-        mapped.push({ id: 999, studentId: 999, courseId: Number(courseId), joinedDate: "", firstName: "Test", lastName: "Student", browniePoints: 0 });
-        setStudents(mapped);
-      } catch { /* non-critical */ }
+          )
+        );
+        const pointsMap = new Map(leaderboard.map(e => [e.userId, e.totalPoints]));
+        const merged: LeaderboardEntry[] = enrollments.map((e, i) => ({
+          userId: e.studentId,
+          username: userDetails[i].username ?? "",
+          firstName: userDetails[i].firstName,
+          lastName: userDetails[i].lastName,
+          totalPoints: pointsMap.get(e.studentId) ?? 0,
+        }));
+        merged.sort((a, b) => b.totalPoints - a.totalPoints);
+        setStudents(merged);
+      } catch (err) { console.error("Leaderboard error:", err); }
+      //} catch { /* non-critical */ }
     })();
-    // Fetch sessions for this course from backend
+    // Fetch sessions for this course
     (async () => {
       try {
-        const data = await apiService.get<SessionGetDTO[]>(`/courses/${courseId}/sessions`, user?.token ?? undefined);        setSessions(
-          data.map((s) => ({
-            id: s.sessionId,
-            title: s.title ?? `Session #${s.sessionId}`,
-            status: (s.active ? "live" : "ended") as Session["status"],
-            startedAt: s.active ? "Active" : "Ended",
-          }))
-        );
+        const data = await apiService.get<SessionGetDTO[]>(`/courses/${courseId}/sessions`, user?.token ?? undefined);
+        const mapped = data.map((s) => ({
+          id: s.sessionId,
+          title: s.title ?? `Session #${s.sessionId}`,
+          status: (s.active ? "live" : "ended") as Session["status"],
+          startedAt: s.active ? "Active" : undefined,
+        }));
+        // Live sessions always appear first; ended sessions keep their original order.
+        mapped.sort((a, b) => (a.status === "live" ? -1 : b.status === "live" ? 1 : 0));
+        setSessions(mapped);
       } catch (err) {
         if (err instanceof Error) {
           console.error("Failed to load sessions:", err.message);
@@ -109,6 +114,25 @@ export default function CoursePage() {
     const session = sessions.find(s => s.id === sessionId);
     const title = encodeURIComponent(session?.title ?? `Session #${sessionId}`);
     router.push(`/session/${courseId}?sessionId=${sessionId}&title=${title}`);
+  };
+
+ //view PDF of teacher whiteboard in new tab
+  const handleViewPdf = async (sessionId: number) => {
+    try {
+      const data = await apiService.get<{ canvasSnapshot?: string }>(
+        `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
+        user?.token ?? undefined
+      );
+      if (!data.canvasSnapshot) { message.warning("No whiteboard content available for this session."); return; }
+      const img = new Image();
+      img.src = data.canvasSnapshot;
+      await new Promise(resolve => { img.onload = resolve; });
+      const pdf = new jsPDF({ orientation: img.width > img.height ? "landscape" : "portrait", unit: "px", format: [img.width, img.height] });
+      pdf.addImage(data.canvasSnapshot, "PNG", 0, 0, img.width, img.height);
+      const blob = pdf.output("blob");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch { message.error("Could not load whiteboard PDF."); }
   };
 
   // Opens modal to name the new session
@@ -265,7 +289,7 @@ export default function CoursePage() {
                 opacity: session.status === "ended" ? 0.7 : 1,
                 flexShrink: 0,
               }}
-              onClick={() => session.status !== "upcoming" && handleJoinSession(session.id)}
+              onClick={() => (session.status === "live" || (session.status === "ended" && isTeacher)) && handleJoinSession(session.id)}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -310,9 +334,9 @@ export default function CoursePage() {
                   {session.status === "ended" && (
                     <Button
                       icon={<BookOpen size={14} />}
-                      onClick={(e) => { e.stopPropagation(); handleJoinSession(session.id); }}
+                      onClick={(e) => { e.stopPropagation(); handleViewPdf(session.id); }}
                     >
-                      View
+                      View PDF
                     </Button>
                   )}
                   {session.status === "upcoming" && (
@@ -354,7 +378,7 @@ export default function CoursePage() {
                   {students[1] && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                         <span style={{ fontSize: "11px" }}>{students[1].firstName} {students[1].lastName}</span>
-                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[1].browniePoints ?? 0} 🍪</span>
+                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[1].totalPoints ?? 0} 🍪</span>
                         <div style={{ background: "#C0C0C0", width: "60px", height: "40px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700 }}>2</div>
                       </div>
                   )}
@@ -363,7 +387,7 @@ export default function CoursePage() {
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                     <span style={{ fontSize: "16px" }}>👑</span>
                     <span style={{ fontSize: "11px", fontWeight: 600 }}>{students[0].firstName} {students[0].lastName}</span>
-                    <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[0].browniePoints ?? 0} 🍪</span>
+                    <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[0].totalPoints ?? 0} 🍪</span>
                     <div style={{ background: "#FFD700", width: "60px", height: "60px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700, fontSize: "18px" }}>1</div>
                   </div>
 
@@ -371,7 +395,7 @@ export default function CoursePage() {
                   {students[2] && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                         <span style={{ fontSize: "11px" }}>{students[2].firstName} {students[2].lastName}</span>
-                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[2].browniePoints ?? 0} 🍪</span>
+                        <span style={{ fontSize: "11px", color: "#6B7280" }}>{students[2].totalPoints ?? 0} 🍪</span>
                         <div style={{ background: "#CD7F32", width: "60px", height: "28px", borderRadius: "6px 6px 0 0", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: 700 }}>3</div>
                       </div>
                   )}
@@ -380,7 +404,7 @@ export default function CoursePage() {
 
             {/* Bar for all students */}
             {students.map((s, i) => (
-                <div key={s.id} style={{
+                <div key={s.userId} style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "8px 12px", background: "rgba(0,0,0,0.06)",
                   borderRadius: "8px", border: "1px solid rgba(91,108,255,0.1)"
@@ -396,7 +420,7 @@ export default function CoursePage() {
                     </span>
                     <span>{s.firstName} {s.lastName}</span>
                   </div>
-                  <span style={{ fontWeight: 600 }}>{s.browniePoints ?? 0} 🍪</span>
+                  <span style={{ fontWeight: 600 }}>{s.totalPoints ?? 0} 🍪</span>
                 </div>
             ))}
 
