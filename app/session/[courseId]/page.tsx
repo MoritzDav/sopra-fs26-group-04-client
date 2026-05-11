@@ -62,6 +62,10 @@ function SessionPageInner() {
   const [sessionEnded, setSessionEnded] = useState(false);
   const [leaveReason, setLeaveReason] = useState<"teacher" | "self">("teacher");
 
+  // #68: track which student's whiteboard the teacher has selected to display.
+  // null means we are showing the teacher's own board (default).
+  const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
+
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -363,6 +367,18 @@ function SessionPageInner() {
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+
+          // #68: select / deselect a student's whiteboard for everyone in the session.
+          // Sync UI state on every client (including the teacher whose own action this is).
+          if (msg.action === "select-student") {
+            setSelectedStudentId(typeof msg.studentId === "number" ? msg.studentId : null);
+            return;
+          }
+          if (msg.action === "deselect-student") {
+            setSelectedStudentId(null);
+            return;
+          }
+
           if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
 
           // resync signal: size=-999 is an impossible stroke size used as sentinel.
@@ -491,6 +507,34 @@ function SessionPageInner() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({
       ...stroke,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+  }, [courseId, user?.id]);
+
+  // #68: Teacher selects a student's whiteboard — broadcast to all session participants.
+  // Update local state optimistically so the UI swaps immediately even if the WebSocket isn't connected yet.
+  const handleSelectStudent = useCallback((studentId: number) => {
+    setSelectedStudentId(studentId);
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      action: "select-student",
+      studentId,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+  }, [courseId, user?.id]);
+
+  // #68: Teacher pressed "Go back" — restore the teacher's own board for everyone.
+  const handleDeselectStudent = useCallback(() => {
+    setSelectedStudentId(null);
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      action: "deselect-student",
       courseId: Number(courseId),
       userId: user?.id ? Number(user.id) : null,
       timestamp: Date.now(),
@@ -717,20 +761,140 @@ function SessionPageInner() {
               </button>
             </div>
         </div>
-        {/* Teacher whiteboard fills remaining space */}
-        <div style={{ flex: 1, overflow: "hidden" }}>
-          <WhiteboardCanvas
-            ref={teacherEditBoardRef}
-            onStroke={handleTeacherStroke}
-            fullHeight={false}
-            initialSnapshot={sessionPdfFile ? undefined : savedSnapshot}
-            onCompositeSnapshot={handleSaveSnapshot}
-            onResync={handleResync}
-            pdfFile={sessionPdfFile}
-            onPdfLoaded={handlePdfLoaded}
-            onPageChange={(pn) => { teacherCurrentPageRef.current = pn; }}
-          />
+        {/* #68: Tab bar — switch between teacher's own board and each student's board.
+            position:relative + zIndex stacks above the layout's floating-bg overlay. */}
+        <div style={{
+          display: "flex",
+          alignItems: "flex-end",
+          gap: "2px",
+          padding: "8px 16px 0",
+          background: "rgba(0,0,0,0.02)",
+          borderBottom: "1px solid var(--border)",
+          overflowX: "auto",
+          flexShrink: 0,
+          position: "relative",
+          zIndex: 50,
+        }}>
+          {/* "My Board" tab — leftmost, anchored */}
+          {(() => {
+            const isActive = selectedStudentId === null;
+            return (
+              <button
+                onClick={handleDeselectStudent}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 14px",
+                  border: "1px solid var(--border)",
+                  borderBottom: isActive ? "2px solid #5B6CFF" : "1px solid var(--border)",
+                  borderTopLeftRadius: "8px",
+                  borderTopRightRadius: "8px",
+                  background: isActive ? "white" : "rgba(255,255,255,0.5)",
+                  color: isActive ? "#5B6CFF" : "#6B7280",
+                  fontSize: "13px",
+                  fontWeight: isActive ? 600 : 500,
+                  cursor: "pointer",
+                  marginBottom: isActive ? "-1px" : 0,
+                  flexShrink: 0,
+                }}
+              >
+                🏠 My Board
+              </button>
+            );
+          })()}
+
+          {/* Student tabs */}
+          {students.map(s => {
+            const isActive = selectedStudentId === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() => handleSelectStudent(s.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 14px",
+                  border: "1px solid var(--border)",
+                  borderBottom: isActive ? "2px solid #5B6CFF" : "1px solid var(--border)",
+                  borderTopLeftRadius: "8px",
+                  borderTopRightRadius: "8px",
+                  background: isActive ? "white" : "rgba(255,255,255,0.5)",
+                  color: isActive ? "#5B6CFF" : "#6B7280",
+                  fontSize: "13px",
+                  fontWeight: isActive ? 600 : 500,
+                  cursor: "pointer",
+                  marginBottom: isActive ? "-1px" : 0,
+                  flexShrink: 0,
+                }}
+              >
+                👤 {s.firstName} {s.lastName}
+              </button>
+            );
+          })}
         </div>
+
+  {/* Teacher whiteboard fills remaining space.
+    #68: When a student is selected, show a placeholder card here instead.
+    The actual rendering of the selected student's strokes lands in #69. */}
+  <div style={{ flex: 1, overflow: "hidden" }}>
+    {selectedStudentId === null ? (
+      <WhiteboardCanvas
+        ref={teacherEditBoardRef}
+        onStroke={handleTeacherStroke}
+        fullHeight={false}
+        initialSnapshot={sessionPdfFile ? undefined : savedSnapshot}
+        onCompositeSnapshot={handleSaveSnapshot}
+        onResync={handleResync}
+        pdfFile={sessionPdfFile}
+        onPdfLoaded={handlePdfLoaded}
+        onPageChange={(pn) => { teacherCurrentPageRef.current = pn; }}
+      />
+    ) : (
+      (() => {
+        const s = students.find(st => st.id === selectedStudentId);
+        const name = s ? `${s.firstName} ${s.lastName}` : `Student #${selectedStudentId}`;
+        return (
+          <div style={{
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(91,108,255,0.04)",
+            border: "2px dashed rgba(91,108,255,0.25)",
+            borderRadius: "12px",
+            margin: "16px",
+            padding: "24px",
+            textAlign: "center",
+          }}>
+            <div style={{ fontSize: "16px", fontWeight: 600, color: "#1A1A2E", marginBottom: "6px" }}>
+              Showing {name}&apos;s whiteboard
+            </div>
+            <div style={{ fontSize: "13px", color: "#6B7280", marginBottom: "16px" }}>
+              Live rendering of the selected student&apos;s board will be wired up in #69.
+            </div>
+            <button
+              onClick={handleDeselectStudent}
+              style={{
+                background: "rgba(91,108,255,0.08)",
+                border: "1px solid rgba(91,108,255,0.15)",
+                color: "#5B6CFF",
+                padding: "8px 14px",
+                borderRadius: "10px",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              ← Go back to my whiteboard
+            </button>
+          </div>
+        );
+      })()
+    )}
+  </div>
 
         {/* ── Files overlay backdrop ── */}
         {filesOpen && (
