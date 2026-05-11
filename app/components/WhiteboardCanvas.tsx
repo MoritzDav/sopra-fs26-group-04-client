@@ -50,6 +50,8 @@ export interface StrokeEvent {
   size?: number;
   dataURL?: string;
   textElements?: TextElement[];
+  /** Current teacher PDF page — relayed via WebSocket so students can index received snapshots. */
+  pageNum?: number;
 }
 
 export interface WhiteboardCanvasHandle {
@@ -58,6 +60,8 @@ export interface WhiteboardCanvasHandle {
   captureAnnotations: () => { offscreen: HTMLCanvasElement | null; textElements: TextElement[] };
   /** Synchronously restore a previously captured annotation layer onto the draw canvas. */
   restoreAnnotations: (offscreen: HTMLCanvasElement | null, textElements: TextElement[]) => void;
+  /** Returns composite PNG data URLs for every PDF page (or a single snapshot if no PDF is loaded). */
+  getAllPageSnapshots: () => Promise<string[]>;
 }
 
 interface WhiteboardCanvasProps {
@@ -78,6 +82,8 @@ interface WhiteboardCanvasProps {
   pdfFile?: File;
   /** Called when a PDF is successfully loaded so the parent can persist it. */
   onPdfLoaded?: (file: File) => void;
+  /** Called whenever the user navigates to a different PDF page. */
+  onPageChange?: (pageNum: number) => void;
 }
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(({
@@ -91,6 +97,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   allowPdf = true,
   pdfFile,
   onPdfLoaded,
+  onPageChange,
 }, ref) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -204,6 +211,10 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
 
   const onResyncRef = useRef(onResync);
   useEffect(() => { onResyncRef.current = onResync; }, [onResync]);
+
+  // Stable ref so switchToPage can call onPageChange without capturing a stale closure
+  const onPageChangeRef = useRef(onPageChange);
+  useEffect(() => { onPageChangeRef.current = onPageChange; }, [onPageChange]);
 
   textElemsRef.current = textElements;
 
@@ -545,6 +556,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     textElemsRef.current = [];
     setTextElements([]);
     setEditingId(null);
+    onPageChangeRef.current?.(newPage);
 
     const { cssW, cssH } = await renderPdfPage(newPage, doc);
     setLogicalW(cssW);
@@ -850,7 +862,92 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.stroke();
       }
     },
-  }), [takeSnapshot]);
+    getAllPageSnapshots: async (): Promise<string[]> => {
+      // Persist the in-progress annotations for the currently visible page before
+      // we iterate — otherwise the active page's strokes would be missing from the PDF.
+      pageAnnotationsRef.current.set(currentPageRef.current, {
+        history: historyRef.current.slice(),
+        historyIdx: historyIdxRef.current,
+      });
+
+      const doc = pdfDocRef.current;
+      // No PDF loaded — the board is a single blank/annotated canvas, return it as-is.
+      if (!doc) {
+        return [await getBurnedCompositeDataURL()];
+      }
+
+      const snapshots: string[] = [];
+      const dpr = dprRef.current;
+
+      for (let pn = 1; pn <= doc.numPages; pn++) {
+        const pdfPage = await doc.getPage(pn);
+        // Render at the same scale used during live display (PDF_SCALE × DPR).
+        const viewport = pdfPage.getViewport({ scale: PDF_SCALE * dpr });
+        const physW = Math.round(viewport.width);
+        const physH = Math.round(viewport.height);
+        const cssW = Math.round(physW / dpr);
+        const cssH = Math.round(physH / dpr);
+
+        // Render PDF background to an offscreen canvas so we don't touch the visible board.
+        const offBg = document.createElement("canvas");
+        offBg.width = physW;
+        offBg.height = physH;
+        offBg.style.background = "#FFFFFF";
+        await pdfPage.render({ canvas: offBg, viewport }).promise;
+
+        // Retrieve stored annotation history for this page (null on pages never visited).
+        const pageData = pageAnnotationsRef.current.get(pn);
+        const entry = pageData && pageData.history.length > 0 ? pageData.history[pageData.historyIdx] : null;
+
+        // Final composite canvas: PDF bg + stroke layer + text elements.
+        const off = document.createElement("canvas");
+        off.width = physW;
+        off.height = physH;
+        const ctx2 = off.getContext("2d");
+        if (!ctx2) { snapshots.push(""); continue; }
+
+        ctx2.drawImage(offBg, 0, 0);
+
+        // Overlay the annotation (stroke) layer for this page if any strokes were drawn.
+        if (entry?.dataURL) {
+          await new Promise<void>(resolve => {
+            const img = new Image();
+            img.onload = () => { ctx2.drawImage(img, 0, 0, physW, physH); resolve(); };
+            img.onerror = () => resolve();
+            img.src = entry.dataURL;
+          });
+        }
+
+        // Burn text elements in via SVG foreignObject (same technique as getBurnedCompositeDataURL).
+        const textElems = entry?.textElements ?? [];
+        if (textElems.length > 0) {
+          const toXhtml = (html: string) => html.replace(/<br\s*\/?>/gi, "<br/>");
+          const divs = textElems.map(el =>
+            `<div style="position:absolute;left:${el.x}px;top:${el.y}px;` +
+            `font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;` +
+            `font-size:${el.fontSize}px;color:${el.color};line-height:${LINE_HEIGHT};` +
+            `padding:4px 8px;white-space:pre-wrap;word-break:break-word;">${toXhtml(el.html)}</div>`
+          ).join("");
+          const svg =
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${cssH}">` +
+            `<foreignObject x="0" y="0" width="${cssW}" height="${cssH}">` +
+            `<div xmlns="http://www.w3.org/1999/xhtml" ` +
+            `style="position:relative;width:${cssW}px;height:${cssH}px;overflow:hidden;">` +
+            `${divs}</div></foreignObject></svg>`;
+          await new Promise<void>(resolve => {
+            const img = new Image();
+            img.onload = () => { try { ctx2.drawImage(img, 0, 0, physW, physH); } catch { /* tainted */ } resolve(); };
+            img.onerror = () => resolve();
+            img.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+          });
+        }
+
+        snapshots.push(off.toDataURL());
+      }
+
+      return snapshots;
+    },
+  }), [takeSnapshot, getBurnedCompositeDataURL]);
 
   // ── Formatting ─────────────────────────────────────────────────────────────
   const applyFormat = useCallback((e: React.MouseEvent, command: string) => {
