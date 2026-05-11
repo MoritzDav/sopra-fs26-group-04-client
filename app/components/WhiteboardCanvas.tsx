@@ -41,7 +41,7 @@ const PRESET_COLORS = [
 ];
 
 export interface StrokeEvent {
-  action: "draw" | "clear" | "snapshot" | "resync";
+  action: "draw" | "clear" | "snapshot" | "resync" | "set-text";
   x?: number;
   y?: number;
   previousX?: number;
@@ -757,8 +757,13 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setTextElements([]);
     setEditingId(null);
     takeSnapshot();
+    // Broadcast a tiny "clear" event so any read-only mirror on the teacher's side resets
+    // immediately, independent of whether the full snapshot WS message arrives.
+    if (onStroke) {
+      onStroke({ action: "clear" });
+    }
     flushAndResync();
-  }, [takeSnapshot, flushAndResync]);
+  }, [takeSnapshot, flushAndResync, onStroke]);
 
   useImperativeHandle(ref, () => ({
     captureAnnotations: () => {
@@ -801,6 +806,15 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         }
         textElemsRef.current = [];
         setTextElements([]);
+        return;
+      }
+      // Update text overlays without touching the canvas pixels. Used so the read-only mirror
+      // (teacher viewing a student's board) gets text changes via a tiny WS message instead
+      // of relying on a large dataURL snapshot.
+      if (stroke.action === "set-text") {
+        const next = Array.isArray(stroke.textElements) ? stroke.textElements : [];
+        textElemsRef.current = next;
+        setTextElements(next);
         return;
       }
       if (stroke.action === "snapshot" && stroke.dataURL) {
