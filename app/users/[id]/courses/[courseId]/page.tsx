@@ -71,14 +71,18 @@ export default function CoursePage() {
             apiService.get<{ id: number; firstName: string; lastName: string; username: string }>(
               `/users/${e.studentId}`, user?.token ?? undefined
             )
-        )
-        const mapped = enrollments.map((e, i) => ({
-              ...e,
-              firstName: userDetails[i].firstName,
-              lastName: userDetails[i].lastName,
-              browniePoints: userDetails[i].browniePoints ?? 0,
-            }));
-        setStudents(mapped);
+          )
+        );
+        const pointsMap = new Map(leaderboard.map(e => [e.userId, e.totalPoints]));
+        const merged: LeaderboardEntry[] = enrollments.map((e, i) => ({
+          userId: e.studentId,
+          username: userDetails[i].username ?? "",
+          firstName: userDetails[i].firstName,
+          lastName: userDetails[i].lastName,
+          totalPoints: pointsMap.get(e.studentId) ?? 0,
+        }));
+        merged.sort((a, b) => b.totalPoints - a.totalPoints);
+        setStudents(merged);
       } catch { /* non-critical */ }
     })();
     // Fetch sessions for this course
