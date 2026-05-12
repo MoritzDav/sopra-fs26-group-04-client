@@ -213,7 +213,7 @@ interface CourseGetDTO {
                   size="small"
                   type="text"
                   style={{ padding: "0 4px", height: "auto" }}
-                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(course.courseCode); message.success("Code copied!"); }}
+                  onClick={(e) => { e.stopPropagation(); navigastudtor.clipboard.writeText(course.courseCode); message.success("Code copied!"); }}
                 />
               </span>
             </Card>
