@@ -825,14 +825,22 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         return;
       }
       if (stroke.action === "draw" && stroke.previousX != null && stroke.previousY != null && stroke.x != null && stroke.y != null) {
-        ctx.beginPath();
-        ctx.moveTo(stroke.previousX, stroke.previousY);
-        ctx.lineTo(stroke.x, stroke.y);
-        ctx.strokeStyle = stroke.color ?? "#1A1A2E";
-        ctx.lineWidth = stroke.size ?? 4;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.stroke();
+        const isDot = stroke.x === stroke.previousX && stroke.y === stroke.previousY;
+        if (isDot) {
+          ctx.beginPath();
+          ctx.arc(stroke.x, stroke.y, (stroke.size ?? 4) / 2, 0, Math.PI * 2);
+          ctx.fillStyle = stroke.color ?? "#1A1A2E";
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(stroke.previousX, stroke.previousY);
+          ctx.lineTo(stroke.x, stroke.y);
+          ctx.strokeStyle = stroke.color ?? "#1A1A2E";
+          ctx.lineWidth = stroke.size ?? 4;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.stroke();
+        }
       }
     },
     getAllPageSnapshots: async (): Promise<string[]> => {

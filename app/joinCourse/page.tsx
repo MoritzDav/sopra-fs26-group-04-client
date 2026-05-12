@@ -106,7 +106,7 @@ function JoinCourse() {
                   type="text"
                   placeholder="Enter course code"
                   value={courseCode}
-                  onChange={(e) => setCourseCode(e.target.value)}
+                  onChange={(e) => setCourseCode(e.target.value.toUpperCase())}
                   style={{ textAlign: "center", fontSize: "18px", letterSpacing: "1px" }}
               />
             </div>

@@ -914,7 +914,7 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
             </div>
         </div>
         {/* #68: Tab bar — switch between teacher's own board and each student's board.
-            position:relative + zIndex stacks above the layout's floating-bg overlay. */}
+            zIndex:40 (below header's 50) so the Students dropdown renders above this bar. */}
         <div style={{
           display: "flex",
           alignItems: "flex-end",
@@ -925,7 +925,7 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
           overflowX: "auto",
           flexShrink: 0,
           position: "relative",
-          zIndex: 50,
+          zIndex: 40,
         }}>
           {/* "My Board" tab — leftmost, anchored. Teacher-green so it is visually distinct
               from the student tabs (which use the default blue accent). */}
@@ -1266,19 +1266,22 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         height: "100vh",
-        background: "rgba(15, 15, 30, 0.92)",
-        backdropFilter: "blur(6px)",
+        background: "transparent",
+        position: "relative",
+        zIndex: 1,
       }}>
         <div style={{
-          background: "#1A1A2E", borderRadius: "20px", padding: "52px 60px",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.5)", textAlign: "center", maxWidth: "440px",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(255,255,255,0.85)",
+          backdropFilter: "blur(16px)",
+          borderRadius: "20px", padding: "52px 60px",
+          boxShadow: "0 8px 40px rgba(91,108,255,0.12)", textAlign: "center", maxWidth: "440px",
+          border: "1px solid var(--border)",
         }}>
           <div style={{ fontSize: "52px", marginBottom: "20px" }}>🎓</div>
-          <h2 style={{ margin: "0 0 12px", fontSize: "22px", color: "#F9FAFB", fontWeight: 700 }}>
+          <h2 style={{ margin: "0 0 12px", fontSize: "22px", color: "#1A1A2E", fontWeight: 700 }}>
             {leaveReason === "self" ? "You left the session." : "The teacher ended this session"}
           </h2>
-          <p style={{ margin: "0 0 36px", color: "#9CA3AF", fontSize: "14px", lineHeight: 1.6 }}>
+          <p style={{ margin: "0 0 36px", color: "#6B7280", fontSize: "14px", lineHeight: 1.6 }}>
             Thanks for participating! You can save your whiteboard or return to the course.
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
@@ -1347,8 +1350,8 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
                 pdf.save(`${name}.pdf`);
               }}
               style={{
-                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                color: "#E5E7EB", padding: "11px 20px", borderRadius: "10px",
+                background: "rgba(91,108,255,0.08)", border: "1px solid rgba(91,108,255,0.2)",
+                color: "#5B6CFF", padding: "11px 20px", borderRadius: "10px",
                 fontSize: "14px", fontWeight: 600, cursor: "pointer",
               }}
             >
