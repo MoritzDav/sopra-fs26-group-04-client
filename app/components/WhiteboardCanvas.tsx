@@ -309,15 +309,13 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     setTextElements(entry.textElements);
   }, []);
 
-  // Like getCompositeDataURL but also burns text elements in as pixels.
-  // Uses SVG foreignObject so the browser's own CSS engine handles font metrics —
-  // positioning is pixel-perfect regardless of font size or formatting.
+  // Builds a composite PNG of the current board state (PDF background + drawing layer).
+  // Text elements are intentionally NOT burned in here — Chrome's SecurityError on SVG
+  // foreignObject makes that approach unreliable. Text is broadcast separately via
+  // 'set-text' WS messages and rendered as React overlays on both teacher and student sides.
   const getBurnedCompositeDataURL = useCallback((): Promise<string> => {
     const drawCanvas = canvasRef.current;
     if (!drawCanvas) return Promise.resolve(getCompositeDataURL());
-    const dpr = dprRef.current;
-    const cssW = drawCanvas.width / dpr;
-    const cssH = drawCanvas.height / dpr;
 
     const off = document.createElement("canvas");
     off.width = drawCanvas.width;
@@ -332,46 +330,15 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       ctx.fillRect(0, 0, off.width, off.height);
     }
     ctx.drawImage(drawCanvas, 0, 0);
-
-    const elems = textElemsRef.current.filter(el => el.html.trim());
-    if (elems.length === 0) return Promise.resolve(off.toDataURL());
-
-    // Normalise void HTML elements to XHTML so the SVG XML parser accepts them
-    const toXhtml = (html: string) => html.replace(/<br\s*\/?>/gi, "<br/>");
-
-    const divs = elems.map(el =>
-      `<div style="position:absolute;left:${el.x}px;top:${el.y}px;` +
-      `font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;` +
-      `font-size:${el.fontSize}px;color:${el.color};line-height:${LINE_HEIGHT};` +
-      `padding:4px 8px;white-space:pre-wrap;word-break:break-word;">${toXhtml(el.html)}</div>`
-    ).join("");
-
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${cssH}">` +
-      `<foreignObject x="0" y="0" width="${cssW}" height="${cssH}">` +
-      `<div xmlns="http://www.w3.org/1999/xhtml" ` +
-      `style="position:relative;width:${cssW}px;height:${cssH}px;overflow:hidden;">` +
-      `${divs}</div></foreignObject></svg>`;
-
-    return new Promise<string>(resolve => {
-      const img = new Image();
-      img.onload = () => {
-        try {
-          ctx.drawImage(img, 0, 0, off.width, off.height);
-          resolve(off.toDataURL());
-        } catch {
-          resolve(off.toDataURL()); // tainted canvas fallback — returns without text overlay
-        }
-      };
-      img.onerror = () => resolve(off.toDataURL());
-      img.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-    });
+    return Promise.resolve(off.toDataURL());
   }, [getCompositeDataURL]);
 
   // Hands the current composite state (with text burned in) to the parent after undo/redo/text/clear.
   // The parent saves to backend, then notifies students via a lightweight WS resync message.
   const flushAndResync = useCallback(async () => {
+    console.log("[flushAndResync] start, textElems:", textElemsRef.current.length);
     const composite = await getBurnedCompositeDataURL();
+    console.log("[flushAndResync] composite ready, size:", composite.length, "calling onResync:", !!onResyncRef.current);
     onResyncRef.current?.(composite, [...textElemsRef.current]);
   }, [getBurnedCompositeDataURL]);
 
@@ -654,13 +621,19 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.fillStyle = "#FFFFFF";
         ctx.fill();
       }
+      if (onStroke) {
+        onStroke({ action: "draw", x: pt.x, y: pt.y, previousX: pt.x, previousY: pt.y, color: "#FFFFFF", size: eraserSize });
+      }
     } else {
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, thickness / 2, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
+      if (onStroke) {
+        onStroke({ action: "draw", x: pt.x, y: pt.y, previousX: pt.x, previousY: pt.y, color, size: thickness });
+      }
     }
-  }, [tool, color, thickness, fontSize, closeCurrentEditor]);
+  }, [tool, color, thickness, fontSize, closeCurrentEditor, onStroke]);
 
   const draw = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (tool === "text" || !isDrawing.current) return;
@@ -852,14 +825,22 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         return;
       }
       if (stroke.action === "draw" && stroke.previousX != null && stroke.previousY != null && stroke.x != null && stroke.y != null) {
-        ctx.beginPath();
-        ctx.moveTo(stroke.previousX, stroke.previousY);
-        ctx.lineTo(stroke.x, stroke.y);
-        ctx.strokeStyle = stroke.color ?? "#1A1A2E";
-        ctx.lineWidth = stroke.size ?? 4;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.stroke();
+        const isDot = stroke.x === stroke.previousX && stroke.y === stroke.previousY;
+        if (isDot) {
+          ctx.beginPath();
+          ctx.arc(stroke.x, stroke.y, (stroke.size ?? 4) / 2, 0, Math.PI * 2);
+          ctx.fillStyle = stroke.color ?? "#1A1A2E";
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(stroke.previousX, stroke.previousY);
+          ctx.lineTo(stroke.x, stroke.y);
+          ctx.strokeStyle = stroke.color ?? "#1A1A2E";
+          ctx.lineWidth = stroke.size ?? 4;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.stroke();
+        }
       }
     },
     getAllPageSnapshots: async (): Promise<string[]> => {

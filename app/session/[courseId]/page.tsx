@@ -171,6 +171,9 @@ function SessionPageInner() {
 
   // Load saved whiteboard state from the backend on mount.
   // Teachers restore their own saved canvas; students restore the teacher's last state.
+  // PDF sessionStorage restore is gated here: only restore the PDF if the backend confirms
+  // a prior snapshot exists for this session. H2 resets auto-increment on restart, so a new
+  // session can reuse an old numeric ID and accidentally find a stale sessionStorage entry.
   useEffect(() => {
     if (!courseId || !sessionId) return;
     apiService.get<{ canvasSnapshot?: string }>(
@@ -178,11 +181,24 @@ function SessionPageInner() {
       user?.token ?? undefined,
     )
       .then(data => {
-        if (!data.canvasSnapshot) return;
-        // Teacher: pass as initialSnapshot prop so WhiteboardCanvas restores it.
-        // Student: inject via applyRemoteStroke so the read-only board shows the teacher's work.
+        if (!data.canvasSnapshot) {
+          // Fresh session — clear any stale PDF that may share this sessionId from a previous server run.
+          sessionStorage.removeItem(`pdf_session_${sessionId}`);
+          return;
+        }
         if (user?.role === "TEACHER") {
           setSavedSnapshot(data.canvasSnapshot);
+          // Restore PDF only after confirming the backend has a prior snapshot for this session.
+          const b64 = sessionStorage.getItem(`pdf_session_${sessionId}`);
+          if (b64) {
+            try {
+              const bytes = atob(b64);
+              const arr = new Uint8Array(bytes.length);
+              for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+              const blob = new Blob([arr], { type: "application/pdf" });
+              setSessionPdfFile(new File([blob], "session.pdf", { type: "application/pdf" }));
+            } catch { /* ignore corrupt sessionStorage data */ }
+          }
         } else {
           setTeacherSnapshot(data.canvasSnapshot);
         }
@@ -214,20 +230,6 @@ function SessionPageInner() {
       });
     }
   }, [selectedStudentId, teacherSnapshot, studentSnapshots]);
-
-  // Restore PDF from sessionStorage when a teacher re-enters their session.
-  useEffect(() => {
-    if (user?.role !== "TEACHER" || !sessionId) return;
-    const b64 = sessionStorage.getItem(`pdf_session_${sessionId}`);
-    if (!b64) return;
-    try {
-      const bytes = atob(b64);
-      const arr = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      const blob = new Blob([arr], { type: "application/pdf" });
-      setSessionPdfFile(new File([blob], "session.pdf", { type: "application/pdf" }));
-    } catch { /* ignore corrupt sessionStorage data */ }
-  }, [sessionId, user?.role]);
 
   // Keep ref mirrors in sync so callbacks don't capture stale closures
   useEffect(() => { sessionFilesRef.current = sessionFiles; }, [sessionFiles]);
@@ -399,7 +401,10 @@ function SessionPageInner() {
           // Sync UI state on every client (including the teacher whose own action this is).
           if (msg.action === "select-student") {
             const newId = typeof msg.studentId === "number" ? msg.studentId : null;
-            setSelectedStudentId(newId);
+            // Only the teacher uses selectedStudentId for tab switching.
+            // Students must NOT set it — it would corrupt their expectedSenderId filter
+            // and cause the snapshot effect to overwrite the teacher's board panel.
+            if (user?.role === "TEACHER") setSelectedStudentId(newId);
             // #69: If THIS client is the newly selected student, immediately broadcast a fresh
             // snapshot of their personal whiteboard so the teacher (and everyone else) sees the
             // student's CURRENT state on selection — not a stale debounced version.
@@ -434,27 +439,22 @@ function SessionPageInner() {
             return;
           }
 
-if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
+console.log("[WS] msg received action:", msg.action, "from userId:", msg.userId, "myId:", user.id, "size:", msg.size);
+if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.log("[WS] skipped (own message)"); return; }
 
-          // #69: Only render incoming strokes from the "expected sender" for the shared display.
-          // - If a student is selected, only that student's strokes are shown on the read-only board.
-          // - Otherwise, only the teacher's strokes are shown.
-          // teacherUserId may not be loaded yet on the very first message — fall through if undefined.
-          // Read selection from a ref so we see the LATEST value, not the stale closure capture.
           const currentSelectedStudentId = selectedStudentIdRef.current;
           const expectedSenderId = currentSelectedStudentId !== null ? currentSelectedStudentId : teacherUserId;
-          if (expectedSenderId !== undefined && Number(msg.userId) !== expectedSenderId) return;
+          console.log("[WS] expectedSenderId:", expectedSenderId, "msg.userId:", msg.userId);
+          if (expectedSenderId !== undefined && Number(msg.userId) !== expectedSenderId) { console.log("[WS] skipped (wrong sender)"); return; }
 
-          // resync signal: size=-999 is an impossible stroke size used as sentinel.
-          // Backend strips unknown fields but preserves standard draw fields like size.
           if (msg.action === "draw" && msg.size === -999) {
-            // resync: teacher saved a new state — fetch it from backend and store
-            // under the teacher's current page number so the PDF can reference it later.
             const pageNum: number = msg.teacherPageNum ?? 1;
+            console.log("[WS] resync sentinel received, fetching snapshot for page", pageNum);
             apiService.get<{ canvasSnapshot?: string }>(
               `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
               user.token ?? undefined,
             ).then(data => {
+              console.log("[WS] snapshot fetched, has data:", !!data.canvasSnapshot);
               if (data.canvasSnapshot) {
                 teacherPageSnapsRef.current.set(pageNum, data.canvasSnapshot);
                 teacherBoardRef.current?.applyRemoteStroke({
@@ -462,11 +462,12 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
                   dataURL: data.canvasSnapshot,
                 });
               }
-            }).catch(() => { /* non-critical */ });
+            }).catch((e) => { console.error("[WS] snapshot fetch failed:", e); });
             return;
           }
 
           if (msg.size !== -999) {
+            console.log("[WS] applyRemoteStroke action:", msg.action, "textElements:", msg.textElements?.length);
             teacherBoardRef.current?.applyRemoteStroke({
               action: msg.action,
               x: msg.x,
@@ -501,7 +502,8 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
       try {
         const sessions = await apiService.get<Array<{ sessionId: number; active: boolean }>>(
           `/courses/${courseId}/sessions`,
-          user.token ?? undefined
+          user.token ?? undefined,
+          { signal: AbortSignal.timeout(4000) }
         );
         const current = sessions.find(s => s.sessionId === Number(sessionId));
         if (current && !current.active) setSessionEnded(true);
@@ -681,21 +683,32 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
 // Persist the teacher's whiteboard state to the backend (debounced during drawing).
   const handleSaveSnapshot = useCallback(async (dataURL: string) => {
     if (!courseId || !sessionId || !user?.token) return;
+    console.log("[handleSaveSnapshot] PUT start, snapshot size:", dataURL.length);
     try {
       await apiService.put(
         `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
         { canvasSnapshot: dataURL },
         user.token,
       );
-    } catch { /* non-critical — drawing still works even if save fails */ }
+      console.log("[handleSaveSnapshot] PUT done");
+    } catch (e) {
+      console.error("[handleSaveSnapshot] PUT failed:", e);
+    }
   }, [courseId, sessionId, user?.token, apiService]);
 
-  // Called after undo/redo/text/clear: save to backend FIRST, then send a tiny
-  // "resync" WS message. Students fetch the new state via HTTP — no large WS payload.
   const handleResync = useCallback(async (composite: string, textElements: TextElement[]) => {
+    console.log("[handleResync] called, textElements:", textElements.length);
     await handleSaveSnapshot(composite);
     const ws = wsRef.current;
+    console.log("[handleResync] WS state:", ws?.readyState, "OPEN=", WebSocket.OPEN);
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      action: "set-text",
+      textElements,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+    }));
+    console.log("[handleResync] set-text sent");
     ws.send(JSON.stringify({
       action: "draw",
       x: 0,
@@ -704,11 +717,12 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
       previousY: 0,
       color: "#000000",
       size: -999,
-      teacherPageNum: teacherCurrentPageRef.current, // students use this to index the fetched snapshot
+      teacherPageNum: teacherCurrentPageRef.current,
       courseId: Number(courseId),
       userId: user?.id ? Number(user.id) : null,
       timestamp: Date.now(),
     }));
+    console.log("[handleResync] sentinel sent");
   }, [handleSaveSnapshot, courseId, user?.id]);
   //distribute Brownie Points
   const giveBrowniePoint = async (studentId: number) => {
@@ -753,7 +767,8 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
       try {
         const sessions = await apiService.get<Array<{ sessionId: number; active: boolean }>>(
           `/courses/${courseId}/sessions`,
-          user?.token ?? undefined
+          user?.token ?? undefined,
+          { signal: AbortSignal.timeout(4000) }
         );
         const current = sessions.find(s => s.sessionId === Number(sessionId));
         console.log("Poll — current session:", current);
@@ -899,7 +914,7 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
             </div>
         </div>
         {/* #68: Tab bar — switch between teacher's own board and each student's board.
-            position:relative + zIndex stacks above the layout's floating-bg overlay. */}
+            zIndex:40 (below header's 50) so the Students dropdown renders above this bar. */}
         <div style={{
           display: "flex",
           alignItems: "flex-end",
@@ -910,7 +925,7 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
           overflowX: "auto",
           flexShrink: 0,
           position: "relative",
-          zIndex: 50,
+          zIndex: 40,
         }}>
           {/* "My Board" tab — leftmost, anchored. Teacher-green so it is visually distinct
               from the student tabs (which use the default blue accent). */}
@@ -1251,19 +1266,22 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         height: "100vh",
-        background: "rgba(15, 15, 30, 0.92)",
-        backdropFilter: "blur(6px)",
+        background: "transparent",
+        position: "relative",
+        zIndex: 1,
       }}>
         <div style={{
-          background: "#1A1A2E", borderRadius: "20px", padding: "52px 60px",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.5)", textAlign: "center", maxWidth: "440px",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(255,255,255,0.85)",
+          backdropFilter: "blur(16px)",
+          borderRadius: "20px", padding: "52px 60px",
+          boxShadow: "0 8px 40px rgba(91,108,255,0.12)", textAlign: "center", maxWidth: "440px",
+          border: "1px solid var(--border)",
         }}>
           <div style={{ fontSize: "52px", marginBottom: "20px" }}>🎓</div>
-          <h2 style={{ margin: "0 0 12px", fontSize: "22px", color: "#F9FAFB", fontWeight: 700 }}>
+          <h2 style={{ margin: "0 0 12px", fontSize: "22px", color: "#1A1A2E", fontWeight: 700 }}>
             {leaveReason === "self" ? "You left the session." : "The teacher ended this session"}
           </h2>
-          <p style={{ margin: "0 0 36px", color: "#9CA3AF", fontSize: "14px", lineHeight: 1.6 }}>
+          <p style={{ margin: "0 0 36px", color: "#6B7280", fontSize: "14px", lineHeight: 1.6 }}>
             Thanks for participating! You can save your whiteboard or return to the course.
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
@@ -1332,8 +1350,8 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
                 pdf.save(`${name}.pdf`);
               }}
               style={{
-                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-                color: "#E5E7EB", padding: "11px 20px", borderRadius: "10px",
+                background: "rgba(91,108,255,0.08)", border: "1px solid rgba(91,108,255,0.2)",
+                color: "#5B6CFF", padding: "11px 20px", borderRadius: "10px",
                 fontSize: "14px", fontWeight: 600, cursor: "pointer",
               }}
             >
