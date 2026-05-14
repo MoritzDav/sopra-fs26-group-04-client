@@ -182,8 +182,28 @@ function SessionPageInner() {
     )
       .then(data => {
         if (!data.canvasSnapshot) {
-          // Fresh session — clear any stale PDF that may share this sessionId from a previous server run.
-          sessionStorage.removeItem(`pdf_session_${sessionId}`);
+          // No backend snapshot yet. Check if the teacher just created this session and wrote
+          // a PDF to sessionStorage moments ago (fresh marker within 30 s). If so, restore it
+          // rather than clearing — it's not a stale entry from a previous server run.
+          const freshMarker = sessionStorage.getItem(`pdf_session_${sessionId}_fresh`);
+          const isFresh = freshMarker && (Date.now() - parseInt(freshMarker)) < 30000;
+          if (isFresh && user?.role === "TEACHER") {
+            sessionStorage.removeItem(`pdf_session_${sessionId}_fresh`);
+            const b64 = sessionStorage.getItem(`pdf_session_${sessionId}`);
+            if (b64) {
+              try {
+                const bytes = atob(b64);
+                const arr = new Uint8Array(bytes.length);
+                for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+                const blob = new Blob([arr], { type: "application/pdf" });
+                setSessionPdfFile(new File([blob], "session.pdf", { type: "application/pdf" }));
+              } catch { /* ignore corrupt sessionStorage data */ }
+            }
+          } else {
+            // Stale entry from a previous server run — clear it.
+            sessionStorage.removeItem(`pdf_session_${sessionId}`);
+            sessionStorage.removeItem(`pdf_session_${sessionId}_fresh`);
+          }
           return;
         }
         if (user?.role === "TEACHER") {

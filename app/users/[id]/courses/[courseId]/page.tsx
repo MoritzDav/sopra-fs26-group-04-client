@@ -169,15 +169,23 @@ export default function CoursePage() {
         ...prev,
       ]);
       setCreateModalOpen(false);
-      // Persist the PDF so it auto-loads when the teacher enters the session
+      // Persist the PDF so it auto-loads when the teacher enters the session.
+      // Must await before router.push() — FileReader.onload is async.
       if (newSessionPdfFile) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          const b64 = result.split(",")[1];
-          if (b64) sessionStorage.setItem(`pdf_session_${created.sessionId}`, b64);
-        };
-        reader.readAsDataURL(newSessionPdfFile);
+        await new Promise<void>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const b64 = result.split(",")[1];
+            if (b64) {
+              sessionStorage.setItem(`pdf_session_${created.sessionId}`, b64);
+              sessionStorage.setItem(`pdf_session_${created.sessionId}_fresh`, Date.now().toString());
+            }
+            resolve();
+          };
+          reader.onerror = () => resolve();
+          reader.readAsDataURL(newSessionPdfFile);
+        });
       }
       router.push(`/session/${courseId}?sessionId=${created.sessionId}&title=${encodeURIComponent(title)}`);    } catch (err) {
       if (err instanceof Error) {
