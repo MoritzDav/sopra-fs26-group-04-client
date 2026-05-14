@@ -146,6 +146,5 @@ reason).
 |                    | [date]   | [4ac257f](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/4ac257fbe9ae3e27f8febce3e5ce1c493853909b) | Creating SessionService and UserService tests to get line coverage up | Line coverage is acceptance criteria for course |
 | **[@Meimira](https://github.com/Meimira)** | [14.05]   | [6b7d449](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/82) | Implementation of an AI Summary Button for every uplodaded file (Student & Teacher) | User story 15 |
 |                    | Joker   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-
+| **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | 14.05   | [18cb970](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/18cb9709ce151d13714895c28e321acc0b3197ed) | add course whiteboard PDF download endpoint with access control + unit test class for Gemini | test coverage should be 80%+ and pdf download is a part of courses |
+|                    | 14.05   | [6b6b4c2](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/6b6b4c26d7468c29bfe75a407ae726891b8232f4) |  add POST endpoint with whiteboard PDF export + safe fallback | generates a PDF from the teacher's canvas snapshot |
