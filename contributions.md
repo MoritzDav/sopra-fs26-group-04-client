@@ -142,8 +142,8 @@ reason).
 |                    | [07.05]   | [789f70f](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/75) | Added a folder icon button in the session header that opens a side panel displaying all pre-uploaded PDFs for the session, with the ability to upload additional files during the session | To upload files which students already worked on, or additional files like (Slides, Exercise, Assignment) |
 | **[@AQuant1](https://github.com/AQuant1)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
 |                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
-| **[@Bablandan](https://github.com/Bablandan)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
-|                    | [date]   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
+| **[@Bablandan](https://github.com/Bablandan)** | [14.05.]   | [594611a](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/594611aacc83210ee94149df155634db0bbc2225) | Creating tests for the uncovered entities with getters&setters | Get line coverage up to pass this course |
+|                    | [date]   | [4ac257f](https://github.com/MoritzDav/sopra-fs26-group-04-server/commit/4ac257fbe9ae3e27f8febce3e5ce1c493853909b) | Creating SessionService and UserService tests to get line coverage up | Line coverage is acceptance criteria for course |
 | **[@Meimira](https://github.com/Meimira)** | [14.05]   | [6b7d449](https://github.com/MoritzDav/sopra-fs26-group-04-client/pull/82) | Implementation of an AI Summary Button for every uplodaded file (Student & Teacher) | User story 15 |
 |                    | Joker   | [Link to Commit 2] | [Brief description of the task] | [Why this contribution is relevant] |
 | **[@ValyaSorokivska](https://github.com/ValyaSorokivska)** | [date]   | [Link to Commit 1] | [Brief description of the task] | [Why this contribution is relevant] |
