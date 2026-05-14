@@ -89,6 +89,8 @@ function SessionPageInner() {
   const [studentSnapshots, setStudentSnapshots] = useState<Record<number, { dataURL: string; textElements: TextElement[] }>>({});
   // PDF file restored from sessionStorage (teacher only) so page navigation survives re-entry
   const [sessionPdfFile, setSessionPdfFile] = useState<File | undefined>();
+  // Student's own personal whiteboard snapshot fetched from backend on rejoin
+  const [studentOwnSnapshot, setStudentOwnSnapshot] = useState<string | undefined>();
 
     // Files panel state
   const [filesOpen, setFilesOpen] = useState(false);
@@ -121,6 +123,12 @@ function SessionPageInner() {
   // Annotations to restore after the next PDF finishes loading
   const teacherPendingRestoreRef = useRef<AnnotationSnapshot | null>(null);
   const studentPendingRestoreRef = useRef<AnnotationSnapshot | null>(null);
+  // True only when the PDF is being restored from sessionStorage on page reload — tells
+  // handlePdfLoaded to also restore the annotation layer from sessionStorage.
+  const restoreAnnotationsOnReloadRef = useRef(false);
+  // While true, handleResync is suppressed so that the empty-canvas flushAndResync fired by
+  // loadPdf on reload doesn't overwrite the backend snapshot or send a bad WS sentinel to students.
+  const suppressResyncRef = useRef(false);
   // Stable refs to current PDF names so callbacks don't capture stale closure values
   const sessionPdfFileRef = useRef<File | undefined>(undefined);
   const studentPdfFileRef = useRef<File | undefined>(undefined);
@@ -216,6 +224,10 @@ function SessionPageInner() {
               const arr = new Uint8Array(bytes.length);
               for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
               const blob = new Blob([arr], { type: "application/pdf" });
+              // Signal handlePdfLoaded to restore annotations and suppress the spurious empty
+              // flushAndResync that loadPdf fires before annotations are restored.
+              restoreAnnotationsOnReloadRef.current = true;
+              suppressResyncRef.current = true;
               setSessionPdfFile(new File([blob], "session.pdf", { type: "application/pdf" }));
             } catch { /* ignore corrupt sessionStorage data */ }
           }
@@ -232,6 +244,28 @@ function SessionPageInner() {
     teacherPageSnapsRef.current.set(1, teacherSnapshot);
     teacherBoardRef.current.applyRemoteStroke({ action: "snapshot", dataURL: teacherSnapshot });
   }, [teacherSnapshot]);
+
+  // Call join on mount: creates the PersonalWhiteboard row in the backend (required for PUT
+  // saves to work) and returns any previously saved snapshot so the student's canvas is
+  // restored after a reload or accidental close.
+  useEffect(() => {
+    if (!courseId || !sessionId || user?.role !== "STUDENT" || !user?.token) return;
+    apiService.post<{ whiteboardId?: number; canvasSnapshot?: string }>(
+      `/courses/${courseId}/sessions/${sessionId}/join`,
+      {},
+      user.token,
+    )
+      .then(data => {
+        if (data.canvasSnapshot) setStudentOwnSnapshot(data.canvasSnapshot);
+      })
+      .catch(() => { /* non-critical — canvas starts blank */ });
+  }, [courseId, sessionId, user?.role, user?.token, apiService]);
+
+  // Apply student's own snapshot to their personal whiteboard once it arrives.
+  useEffect(() => {
+    if (!studentOwnSnapshot || !studentBoardRef.current) return;
+    studentBoardRef.current.applyRemoteStroke({ action: "snapshot", dataURL: studentOwnSnapshot });
+  }, [studentOwnSnapshot]);
 
   // #69: Apply the latest cached snapshot whenever it changes for the currently selected
   // student (or when selection itself changes). Crucially, do NOT clear the canvas otherwise —
@@ -276,6 +310,45 @@ function SessionPageInner() {
       teacherPendingRestoreRef.current = null;
       // 200 ms gives loadPdf time to clear the draw canvas and call takeSnapshot before we paint strokes back.
       setTimeout(() => teacherEditBoardRef.current?.restoreAnnotations(pending.offscreen, pending.textElements), 200);
+    } else if (restoreAnnotationsOnReloadRef.current && sessionId) {
+      // Page reload: restore the annotation layer that was saved to sessionStorage before the reload.
+      // initialSnapshot is skipped when a PDF is set (to avoid rendering the PDF twice), so we
+      // separately restore just the draw canvas strokes + text on top of the freshly loaded PDF.
+      restoreAnnotationsOnReloadRef.current = false;
+      const annDataURL = sessionStorage.getItem(`ann_session_${sessionId}`);
+      const annTextJSON = sessionStorage.getItem(`ann_text_session_${sessionId}`);
+      if (annDataURL) {
+        const textElems: TextElement[] = (() => {
+          try { return annTextJSON ? JSON.parse(annTextJSON) : []; } catch { return []; }
+        })();
+        const img = new Image();
+        img.onload = () => {
+          const off = document.createElement("canvas");
+          off.width = img.naturalWidth;
+          off.height = img.naturalHeight;
+          const ctx = off.getContext("2d");
+          if (ctx) ctx.drawImage(img, 0, 0);
+          setTimeout(() => {
+            teacherEditBoardRef.current?.restoreAnnotations(off, textElems);
+            // Re-enable resync now that annotations are restored, then send a WS sentinel so
+            // students refetch the backend snapshot (which still has the correct pre-reload state).
+            suppressResyncRef.current = false;
+            const ws = wsRef.current;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                action: "draw",
+                x: 0, y: 0, previousX: 0, previousY: 0,
+                color: "#000000", size: -999,
+                teacherPageNum: teacherCurrentPageRef.current,
+                courseId: Number(courseId),
+                userId: user?.id ? Number(user.id) : null,
+                timestamp: Date.now(),
+              }));
+            }
+          }, 200);
+        };
+        img.src = annDataURL;
+      }
     }
     // --- backend / sessionStorage logic below requires a valid session ---
     if (!sessionId) return;
@@ -301,7 +374,7 @@ function SessionPageInner() {
         prev.some(f => f.fileName === uploaded.fileName) ? prev : [...prev, uploaded]
       ))
       .catch(() => {});
-  }, [sessionId, user?.token, apiService]);
+  }, [sessionId, courseId, user?.token, user?.id, apiService]);
 
   // Called when the student's personal whiteboard loads a PDF — restores pending annotations.
   const handleStudentPdfLoaded = useCallback((_file: File) => {
@@ -626,14 +699,27 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
     }));
   }, [courseId, user?.id]);
 
+  // Persist student's personal whiteboard to backend so it survives page reloads.
+  const handleSaveStudentSnapshot = useCallback(async (dataURL: string) => {
+    if (!courseId || !sessionId || !user?.token) return;
+    try {
+      await apiService.put(
+        `/courses/${courseId}/sessions/${sessionId}/personal-whiteboard`,
+        { canvasSnapshot: dataURL },
+        user.token,
+      );
+    } catch { /* non-critical */ }
+  }, [courseId, sessionId, user?.token, apiService]);
+
   // #69: Student finished a non-stroke change (undo/redo/text/clear).
-  // Strategy (frontend-only, no backend changes for buffer size or storage):
+  // Strategy:
   //  1. Always broadcast a tiny "set-text" message — text elements are just a small array,
   //     they fit comfortably in Spring's default ~8 KB WS text-message buffer.
   //  2. Also send a JPEG-compressed "student-snapshot" so the teacher's view picks up drawing
   //     changes (undo, eraser, etc.) the next time it re-applies the snapshot. May silently
   //     fail for very busy boards — the live stroke broadcast already keeps drawings in sync,
   //     so the snapshot is a "catch-up" mechanism, not the primary path.
+  //  3. Also PUT the snapshot to the backend so it survives reloads.
   const handleStudentResync = useCallback(async (composite: string, textElements: TextElement[]) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -670,7 +756,9 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
       userId: user?.id ? Number(user.id) : null,
       timestamp: Date.now(),
     }));
-  }, [courseId, user?.id]);
+    // 3. Persist to backend for rejoin restore
+    await handleSaveStudentSnapshot(jpegDataURL);
+  }, [courseId, user?.id, handleSaveStudentSnapshot]);
 
   // #68: Teacher selects a student's whiteboard — broadcast to all session participants.
   // Update local state optimistically so the UI swaps immediately even if the WebSocket isn't connected yet.
@@ -714,9 +802,20 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
     } catch (e) {
       console.error("[handleSaveSnapshot] PUT failed:", e);
     }
+    // Persist the draw-only annotation layer to sessionStorage so it can be restored on top of
+    // the PDF after a page reload (initialSnapshot is skipped when a PDF is set, so the
+    // composite saved to the backend isn't enough by itself).
+    const snap = teacherEditBoardRef.current?.captureAnnotations();
+    if (snap?.offscreen) {
+      sessionStorage.setItem(`ann_session_${sessionId}`, snap.offscreen.toDataURL());
+      sessionStorage.setItem(`ann_text_session_${sessionId}`, JSON.stringify(snap.textElements));
+    }
   }, [courseId, sessionId, user?.token, apiService]);
 
   const handleResync = useCallback(async (composite: string, textElements: TextElement[]) => {
+    // During a page reload the PDF triggers an empty flushAndResync before annotations are
+    // restored. Skip entirely — the reload path sends its own correct sentinel after restore.
+    if (suppressResyncRef.current) return;
     console.log("[handleResync] called, textElements:", textElements.length);
     await handleSaveSnapshot(composite);
     const ws = wsRef.current;
@@ -1408,7 +1507,13 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
         zIndex: 10,
       }}>
         <button
-          onClick={() => { setLeaveReason("self"); setSessionEnded(true); }}
+          onClick={async () => {
+            try {
+              await apiService.delete(`/courses/${courseId}/sessions/${sessionId}/leave`, user?.token ?? undefined);
+            } catch { /* non-critical — still show leave screen even if backend call fails */ }
+            setLeaveReason("self");
+            setSessionEnded(true);
+          }}
           style={{
             display: "flex",
             alignItems: "center",
@@ -1560,7 +1665,7 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
                   onPdfLoaded={handleStudentPdfLoaded}
                   onStroke={handleStudentStroke}
                   onResync={handleStudentResync}
-                  onCompositeSnapshot={(url) => { studentSnapshotRef.current = url; }}
+                  onCompositeSnapshot={(url) => { studentSnapshotRef.current = url; handleSaveStudentSnapshot(url); }}
                 />
             </div>
         </div>
