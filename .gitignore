@@ -136,3 +136,11 @@ yarn-error.log*
 # misc
 .DS_Store
 *.pem
+
+# pdfjs worker (auto-copied by postinstall)
+/public/pdf.worker.legacy.mjs
+/public/pdf.worker.min.js
+/public/pdf.worker.min.mjs
+
+# local build helpers
+/empty-module.js
