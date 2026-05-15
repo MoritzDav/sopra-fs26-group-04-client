@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import WhiteboardCanvas, { StrokeEvent, WhiteboardCanvasHandle, TextElement } from "@/components/WhiteboardCanvas";
-import { ArrowLeft, MessageSquare, X, Send, Folder, Upload, FileText, Download } from "lucide-react";
+import { ArrowLeft, MessageSquare, X, Send, Folder, Upload, FileText, Download, Sparkles } from "lucide-react";
 import { useUser } from "@/contexts/UserContext";
 import { useApi } from "@/hooks/useApi";
 import { getWhiteboardWebSocketUrl, getWebSocketDomain } from "@/utils/websocket";
+import { getApiDomain } from "@/utils/domain";
 import { jsPDF } from "jspdf";
 
 // Incoming chat message shape from backend ChatMessageGetDTO
@@ -97,6 +98,7 @@ function SessionPageInner() {
   const [sessionFiles, setSessionFiles] = useState<SessionFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
+  const [summarizingIds, setSummarizingIds] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Student-only local files (not sent to backend, only visible to this student)
   const [studentLocalFiles, setStudentLocalFiles] = useState<File[]>([]);
@@ -423,6 +425,33 @@ function SessionPageInner() {
       setFileUploading(false);
     }
   }, [sessionId, user?.token, apiService]);
+
+  //function for AI summary, needs POST /sessions/{sessionId}/files/{fileId}/summarize
+  const handleSummarizePdf = useCallback(async (f: SessionFile) => {
+    if (!user?.token || !sessionId) return;
+    setSummarizingIds(prev => new Set(prev).add(f.id));
+    try {
+      const res = await fetch(
+        `${getApiDomain()}/sessions/${sessionId}/files/${f.id}/summarize`,
+        { method: "POST", headers: { Authorization: user.token } },
+      );
+      if (!res.ok) throw new Error(`Summarize failed: ${res.status}`);
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const nameMatch = disposition.match(/filename="?([^"]+)"?/);
+      const filename = nameMatch?.[1] ?? `${f.fileName.replace(/\.pdf$/i, "")}_summary.pdf`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to summarize PDF:", err);
+    } finally {
+      setSummarizingIds(prev => { const next = new Set(prev); next.delete(f.id); return next; });
+    }
+  }, [sessionId, user?.token]);
 
   // Load a file from the panel list onto the whiteboard without re-uploading.
   // Captures current annotations first so they survive the PDF switch.
@@ -1205,6 +1234,19 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
                 >
                   <FileText size={16} style={{ color: "#5B6CFF", flexShrink: 0 }} />
                   <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}</span>
+                  {/*AI summarize button for the teacher*/}
+                  <button
+                    onClick={e => { e.stopPropagation(); handleSummarizePdf(f); }}
+                    disabled={summarizingIds.has(f.id)}
+                    title="Summarize with AI"
+                    style={{
+                      background: "transparent", border: "none", cursor: summarizingIds.has(f.id) ? "not-allowed" : "pointer",
+                      padding: "2px", display: "flex", alignItems: "center", flexShrink: 0,
+                      color: summarizingIds.has(f.id) ? "#C4B5FD" : "#8B5CF6",
+                    }}
+                  >
+                    <Sparkles size={14} />
+                  </button>
                   <a
                     href={`data:${f.fileType};base64,${f.data}`}
                     download={f.fileName}
@@ -1723,6 +1765,19 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
               >
                 <FileText size={16} style={{ color: "#5B6CFF", flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}</span>
+                {/*AI summarize button for the student*/}
+                <button
+                  onClick={e => { e.stopPropagation(); handleSummarizePdf(f); }}
+                  disabled={summarizingIds.has(f.id)}
+                  title="Summarize with AI"
+                  style={{
+                    background: "transparent", border: "none", cursor: summarizingIds.has(f.id) ? "not-allowed" : "pointer",
+                    padding: "2px", display: "flex", alignItems: "center", flexShrink: 0,
+                    color: summarizingIds.has(f.id) ? "#C4B5FD" : "#8B5CF6",
+                  }}
+                >
+                  <Sparkles size={14} />
+                </button>
                 <a
                   href={`data:${f.fileType};base64,${f.data}`}
                   download={f.fileName}
