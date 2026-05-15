@@ -573,10 +573,17 @@ function SessionPageInner() {
 console.log("[WS] msg received action:", msg.action, "from userId:", msg.userId, "myId:", user.id, "size:", msg.size);
 if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.log("[WS] skipped (own message)"); return; }
 
-          const currentSelectedStudentId = selectedStudentIdRef.current;
-          const expectedSenderId = currentSelectedStudentId !== null ? currentSelectedStudentId : teacherUserId;
-          console.log("[WS] expectedSenderId:", expectedSenderId, "msg.userId:", msg.userId);
-          if (expectedSenderId !== undefined && Number(msg.userId) !== expectedSenderId) { console.log("[WS] skipped (wrong sender)"); return; }
+          // #66: during multi-mode, every participant is drawing on the shared
+          // teacher canvas — accept strokes from ANY sender. Otherwise keep the
+          // existing teacher-or-selected-student-only filter.
+          if (!collaborationActiveRef.current) {
+            const currentSelectedStudentId = selectedStudentIdRef.current;
+            const expectedSenderId = currentSelectedStudentId !== null ? currentSelectedStudentId : teacherUserId;
+            console.log("[WS] expectedSenderId:", expectedSenderId, "msg.userId:", msg.userId);
+            if (expectedSenderId !== undefined && Number(msg.userId) !== expectedSenderId) { console.log("[WS] skipped (wrong sender)"); return; }
+          } else {
+            console.log("[WS] multi-mode active — accepting from any sender");
+          }
 
           if (msg.action === "draw" && msg.size === -999) {
             const pageNum: number = msg.teacherPageNum ?? 1;
@@ -599,7 +606,7 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
 
           if (msg.size !== -999) {
             console.log("[WS] applyRemoteStroke action:", msg.action, "textElements:", msg.textElements?.length);
-            teacherBoardRef.current?.applyRemoteStroke({
+            const strokePayload = {
               action: msg.action,
               x: msg.x,
               y: msg.y,
@@ -609,7 +616,20 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
               size: msg.size,
               dataURL: msg.dataURL,
               textElements: msg.textElements,
-            });
+              isEraser: msg.isEraser,
+            };
+            // Always paint onto the read-only mirror (student side: teacher's left
+            // panel; teacher side: hidden inspect canvas).
+            teacherBoardRef.current?.applyRemoteStroke(strokePayload);
+            // #66: in multi-mode the teacher is looking at My Board (the editable
+            // canvas) — that IS the shared collab board for them. So also paint
+            // incoming strokes from other participants directly onto it, so the
+            // teacher sees the live collaborative drawing without leaving My Board.
+            // The strokes also persist on My Board after multi-mode ends because
+            // the editable canvas keeps whatever was painted on it.
+            if (collaborationActiveRef.current && user.role === "TEACHER") {
+              teacherEditBoardRef.current?.applyRemoteStroke(strokePayload);
+            }
           }
         } catch (err) {
           console.error("Failed to parse incoming stroke", err);
@@ -644,8 +664,29 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === "collaboration-start") setCollaborationActive(true);
-          if (msg.type === "collaboration-end")   setCollaborationActive(false);
+          if (msg.type === "collaboration-start") {
+            setCollaborationActive(true);
+            // #66: during multi-mode the inspect-a-student tabs make no sense
+            // (everyone draws on the same shared board). Force the teacher's
+            // view back to "My Board" so the collab canvas stays visible and
+            // we don't wipe it by applying a stale student-snapshot.
+            setSelectedStudentId(null);
+          }
+          if (msg.type === "collaboration-end") {
+            setCollaborationActive(false);
+            // #66 (AC #9 + #10): on collaboration end, stamp the shared canvas onto
+            // each student's personal whiteboard at the teacher's current page. The
+            // existing personal annotations stay underneath because applyCollabLayer
+            // uses drawImage without clearing. Teachers don't have a personal board,
+            // so this is student-only.
+            if (user?.role !== "TEACHER" && teacherBoardRef.current && studentBoardRef.current) {
+              const snap = teacherBoardRef.current.captureAnnotations();
+              if (snap.offscreen) {
+                const teacherPage = teacherCurrentPageRef.current ?? 1;
+                studentBoardRef.current.applyCollabLayer(teacherPage, snap.offscreen);
+              }
+            }
+          }
         } catch { /* non-critical */ }
       };
     };
@@ -743,6 +784,42 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({
       ...stroke,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+  }, [courseId, user?.id]);
+
+  // #66: while multi-mode is active, students draw on the SHARED teacher canvas.
+  // Each stroke is broadcast just like a teacher stroke — same WS, same "draw"
+  // action — tagged with the student's userId. Every connected client (teacher
+  // + other students) then paints it onto their teacherBoardRef. The filter
+  // loosening in ws.onmessage (see expectedSenderId block) allows non-teacher
+  // strokes through while collaborationActive.
+  const handleCollabStroke = useCallback((stroke: StrokeEvent) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!collaborationActiveRef.current) return; // belt + suspenders
+    ws.send(JSON.stringify({
+      ...stroke,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+  }, [courseId, user?.id]);
+
+  // #66: text additions / edits / clears on the shared canvas don't go through
+  // onStroke — they go through onResync (after the canvas commits text /
+  // undo / redo / clear via flushAndResync). Broadcast a tiny "set-text" so
+  // every participant updates their text overlays. The teacherEditBoardRef
+  // routing in ws.onmessage applies it to the teacher's My Board too.
+  const handleCollabResync = useCallback((_composite: string, textElements: TextElement[]) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!collaborationActiveRef.current) return;
+    ws.send(JSON.stringify({
+      action: "set-text",
+      textElements,
       courseId: Number(courseId),
       userId: user?.id ? Number(user.id) : null,
       timestamp: Date.now(),
@@ -1184,10 +1261,16 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
           {/* Student tabs */}
           {students.map(s => {
             const isActive = selectedStudentId === s.id;
+            // #66: inspect-a-student is disabled during multi-mode because the
+            // shared collab canvas IS what everyone is drawing on — there's no
+            // separate per-student board to view.
+            const disabled = collaborationActive;
             return (
               <button
                 key={s.id}
-                onClick={() => handleSelectStudent(s.id)}
+                onClick={() => { if (!disabled) handleSelectStudent(s.id); }}
+                disabled={disabled}
+                title={disabled ? "Disabled while multi-mode is active" : undefined}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -1201,7 +1284,8 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
                   color: isActive ? "#5B6CFF" : "#6B7280",
                   fontSize: "13px",
                   fontWeight: isActive ? 600 : 500,
-                  cursor: "pointer",
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  opacity: disabled ? 0.5 : 1,
                   marginBottom: isActive ? "-1px" : 0,
                   flexShrink: 0,
                 }}
@@ -1755,13 +1839,32 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
             }}>
                 <WhiteboardCanvas
                   ref={teacherBoardRef}
-                  readOnly
+                  // #66: editable for the student while collab mode is on (so they
+                  // can draw on the shared canvas), read-only otherwise.
+                  readOnly={!collaborationActive}
                   fullHeight={false}
                   label={(() => {
                     if (selectedStudentId === null) return "Teacher's Whiteboard";
                     const sel = students.find(s => s.id === selectedStudentId);
                     return sel ? `${sel.firstName} ${sel.lastName}'s Whiteboard` : "Selected Student's Whiteboard";
                   })()}
+                  // #66: only broadcast strokes from this canvas while collab is active.
+                  onStroke={collaborationActive ? handleCollabStroke : undefined}
+                  // #66: text additions / clears / undo go through onResync. Broadcast
+                  // a set-text WS message so other participants update their overlays.
+                  onResync={collaborationActive ? handleCollabResync : undefined}
+                  // #66 (AC #11): students may not navigate PDF pages during multi-mode —
+                  // the page is dictated by the teacher's current page.
+                  pageNavLocked={collaborationActive}
+                  // #66: route incoming snapshots to the bg layer on this canvas. The
+                  // student has no local PDF — the streamed teacher PDF arrives as a
+                  // snapshot. Putting it on bg lets the local eraser use destination-out
+                  // (it'll see hasPdf=true after the first snapshot) to erase ONLY local
+                  // strokes, leaving the streamed PDF visible.
+                  treatSnapshotAsBackground
+                  // #66: only the teacher can rewind the shared canvas — disable the
+                  // student's undo/redo here so they don't desync the collab view.
+                  historyLocked={collaborationActive}
                 />
             </div>
 
