@@ -15,3 +15,12 @@ export function getWebSocketDomain(): string {
 export function getWhiteboardWebSocketUrl(courseId: string | number): string {
   return `${getWebSocketDomain()}/ws/whiteboard/${courseId}`;
 }
+
+/**
+ * Builds the full WebSocket URL for the session events endpoint.
+ * Used by the multi-mode (collaboration-start / collaboration-end) and
+ * session-ended event streams broadcast by SessionWebSocketHandler.
+ */
+export function getSessionWebSocketUrl(sessionId: string | number): string {
+  return `${getWebSocketDomain()}/ws/session/${sessionId}`;
+}

@@ -6,7 +6,7 @@ import WhiteboardCanvas, { StrokeEvent, WhiteboardCanvasHandle, TextElement } fr
 import { ArrowLeft, MessageSquare, X, Send, Folder, Upload, FileText, Download, Sparkles } from "lucide-react";
 import { useUser } from "@/contexts/UserContext";
 import { useApi } from "@/hooks/useApi";
-import { getWhiteboardWebSocketUrl, getWebSocketDomain } from "@/utils/websocket";
+import { getWhiteboardWebSocketUrl, getSessionWebSocketUrl, getWebSocketDomain } from "@/utils/websocket";
 import { getApiDomain } from "@/utils/domain";
 import { jsPDF } from "jspdf";
 
@@ -70,6 +70,15 @@ function SessionPageInner() {
   // (the closure is created once per WS connect; without this ref it would see stale state).
   const selectedStudentIdRef = useRef<number | null>(null);
   useEffect(() => { selectedStudentIdRef.current = selectedStudentId; }, [selectedStudentId]);
+
+  // #67 (multi-mode): mirror the backend's MULTI_MODE state on every client.
+  // True while collaboration mode is on; flips when a collaboration-start/end
+  // event arrives on the session WebSocket.
+  const [collaborationActive, setCollaborationActive] = useState(false);
+  // Ref mirror so the long-lived whiteboard ws.onmessage closure can read the
+  // CURRENT collaboration state without stale captures.
+  const collaborationActiveRef = useRef(false);
+  useEffect(() => { collaborationActiveRef.current = collaborationActive; }, [collaborationActive]);
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -617,6 +626,33 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
     };
   }, [courseId, user]);
 
+  // #67 (multi-mode): subscribe to session-level events so every participant
+  // learns when the teacher toggles multi-mode. The backend broadcasts
+  // {type: "collaboration-start"} / {type: "collaboration-end"} on
+  // /ws/session/{sessionId} whenever PUT /sessions/{id}/collaboration is called.
+  // Auto-reconnects after 1 s if the connection drops.
+  useEffect(() => {
+    if (!sessionId || !user) return;
+    let destroyed = false;
+    let ws: WebSocket;
+    const connect = () => {
+      if (destroyed) return;
+      ws = new WebSocket(getSessionWebSocketUrl(sessionId));
+      ws.onopen = () => console.log("Session WebSocket connected");
+      ws.onclose = () => { if (!destroyed) setTimeout(connect, 1000); };
+      ws.onerror = () => console.warn("Session WebSocket could not connect");
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "collaboration-start") setCollaborationActive(true);
+          if (msg.type === "collaboration-end")   setCollaborationActive(false);
+        } catch { /* non-critical */ }
+      };
+    };
+    connect();
+    return () => { destroyed = true; ws?.close(); };
+  }, [sessionId, user]);
+
  // Check on mount if session is already ended (prevents joining an ended session)
   useEffect(() => {
     if (user?.role === "TEACHER" || !sessionId || !courseId || !user?.token) return;
@@ -817,6 +853,24 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
     }));
   }, [courseId, user?.id]);
 
+  // #67 (multi-mode): teacher toggles collaboration mode on or off.
+  // Backend updates Session.mode and broadcasts collaboration-start/end on the
+  // session WebSocket, which flips collaborationActive on every connected client
+  // (including this one). We deliberately do NOT set state optimistically — we
+  // wait for the WS echo so every participant flips at the same moment.
+  const handleToggleCollaboration = useCallback(async () => {
+    if (!sessionId || !user?.token) return;
+    try {
+      await apiService.put(
+        `/sessions/${sessionId}/collaboration`,
+        { collaborationActive: !collaborationActive },
+        user.token,
+      );
+    } catch (err) {
+      console.error("Failed to toggle multi-mode", err);
+    }
+  }, [sessionId, user?.token, collaborationActive, apiService]);
+
 // Persist the teacher's whiteboard state to the backend (debounced during drawing).
   const handleSaveSnapshot = useCallback(async (dataURL: string) => {
     if (!courseId || !sessionId || !user?.token) return;
@@ -970,6 +1024,28 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
                 {sessionTitle}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {/* #67: Multi-Mode toggle — only the teacher controls collaboration mode.
+                  The PUT call goes through; the WS echo updates collaborationActive
+                  on every client (including this one). */}
+              <button
+                onClick={handleToggleCollaboration}
+                title={collaborationActive ? "Turn multi-mode off" : "Turn multi-mode on"}
+                style={{
+                  display: "flex", alignItems: "center", gap: "6px",
+                  background: collaborationActive ? "rgba(220,38,38,0.10)" : "white",
+                  border: collaborationActive
+                    ? "1px solid #DC2626"
+                    : "1px solid var(--border)",
+                  color: collaborationActive ? "#DC2626" : "#374151",
+                  padding: "6px 12px",
+                  borderRadius: "8px", fontSize: "13px",
+                  fontWeight: 600, cursor: "pointer",
+                  transition: "background 0.15s, color 0.15s, border-color 0.15s",
+                }}
+              >
+                Multi-Mode{collaborationActive ? " · ON" : ""}
+              </button>
+
               {/* Brownie Points Dropdown */}
               <div style={{ position: "relative" }}>
                 <button
@@ -1143,7 +1219,18 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
             read-only snapshot of the selected student stays painted on its canvas across tab
             switches. This way the last loaded screen never disappears when the teacher
             switches between "My Board" and a student tab. */}
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        {/* #67: When multi-mode is active, draw a red border + soft glow around the shared
+            canvas area to make it visually obvious the board is being live-streamed
+            collaboratively. 3px transparent → 3px red so the canvas never reflows. */}
+        <div style={{
+          flex: 1,
+          overflow: "hidden",
+          position: "relative",
+          border: collaborationActive ? "3px solid #DC2626" : "3px solid transparent",
+          boxShadow: collaborationActive ? "0 0 0 3px rgba(220,38,38,0.15)" : "none",
+          borderRadius: collaborationActive ? "8px" : "0",
+          transition: "border-color 0.2s, box-shadow 0.2s",
+        }}>
           {/* Teacher's editable board */}
           <div style={{
             position: "absolute",
@@ -1576,6 +1663,29 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
           {sessionTitle}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {/* #67: read-only Multi-Mode indicator badge for students. Only renders when
+              collaboration is active. Same visual shape as the teacher's toggle button
+              so the state is unmistakable at a glance — but not interactive (cursor:
+              default), since only the teacher controls the mode. */}
+          {collaborationActive && (
+            <div
+              title="Multi-mode is active — you can draw on the teacher's whiteboard"
+              style={{
+                display: "flex", alignItems: "center", gap: "6px",
+                background: "rgba(220,38,38,0.10)",
+                border: "1px solid #DC2626",
+                color: "#DC2626",
+                padding: "6px 12px",
+                borderRadius: "8px",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: "default",
+                userSelect: "none",
+              }}
+            >
+              Multi-Mode · ON
+            </div>
+          )}
           <button
             onClick={() => { setFilesOpen(true); fetchSessionFiles(); }}
             style={{
@@ -1627,13 +1737,21 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
             }}
         >
             {/* Left: teacher's whiteboard (read-only) */}
+            {/* #67: same red-border treatment as the teacher's view so students can also
+                see at a glance when multi-mode is active. We override the default soft
+                grey card shadow with a bold red halo when active to match the teacher's
+                visual feedback. */}
             <div style={{
                 flex: splitRatio,
                 minWidth: 0,
                 overflow: "hidden",
                 borderRadius: "12px",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
                 background: "white",
+                border: collaborationActive ? "3px solid #DC2626" : "3px solid transparent",
+                boxShadow: collaborationActive
+                    ? "0 0 0 3px rgba(220,38,38,0.20), 0 4px 16px rgba(220,38,38,0.25)"
+                    : "0 4px 16px rgba(0,0,0,0.08)",
+                transition: "border-color 0.2s, box-shadow 0.2s",
             }}>
                 <WhiteboardCanvas
                   ref={teacherBoardRef}
