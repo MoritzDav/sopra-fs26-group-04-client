@@ -41,7 +41,7 @@ const PRESET_COLORS = [
 ];
 
 export interface StrokeEvent {
-  action: "draw" | "clear" | "snapshot" | "resync" | "set-text";
+  action: "draw" | "clear" | "snapshot" | "resync" | "set-text" | "stroke-end";
   x?: number;
   y?: number;
   previousX?: number;
@@ -52,6 +52,10 @@ export interface StrokeEvent {
   textElements?: TextElement[];
   /** Current teacher PDF page — relayed via WebSocket so students can index received snapshots. */
   pageNum?: number;
+  /** When true, the receiver should apply this stroke with "destination-out" compositing
+   *  so it actually erases the draw layer (revealing the PDF underneath) instead of
+   *  painting a white line on top of the PDF. */
+  isEraser?: boolean;
 }
 
 export interface WhiteboardCanvasHandle {
@@ -62,6 +66,10 @@ export interface WhiteboardCanvasHandle {
   restoreAnnotations: (offscreen: HTMLCanvasElement | null, textElements: TextElement[]) => void;
   /** Returns composite PNG data URLs for every PDF page (or a single snapshot if no PDF is loaded). */
   getAllPageSnapshots: () => Promise<string[]>;
+  /** #66: Overlay a captured collaborative-canvas layer onto the personal board at the
+   *  given PDF page. Switches the page first if needed (async). Does NOT clear existing
+   *  drawings — uses drawImage on top so the student's prior annotations remain underneath. */
+  applyCollabLayer: (pageNum: number, layer: HTMLCanvasElement) => void;
 }
 
 interface WhiteboardCanvasProps {
@@ -84,6 +92,22 @@ interface WhiteboardCanvasProps {
   onPdfLoaded?: (file: File) => void;
   /** Called whenever the user navigates to a different PDF page. */
   onPageChange?: (pageNum: number) => void;
+  /** When true, the prev/next page buttons are disabled (used during multi-mode
+   *  so students are locked to the teacher's current page — AC #11 of user
+   *  story #14). The canvas content can still update via remote strokes; only
+   *  the user-driven nav is gated. */
+  pageNavLocked?: boolean;
+  /** When true, incoming "snapshot" actions paint onto the background canvas
+   *  instead of the draw canvas — useful when this canvas has no local PDF
+   *  (e.g. the student's view of the teacher board) but we want the eraser to
+   *  erase only local strokes, not the streamed PDF underneath. Also forces
+   *  hasPdf=true after the first snapshot so the eraser uses destination-out. */
+  treatSnapshotAsBackground?: boolean;
+  /** When true, the undo/redo buttons and ⌘Z/⌘Y keyboard shortcuts are disabled.
+   *  Used on the student's shared view during multi-mode so that only the
+   *  teacher can rewind the shared canvas; students can still undo on their
+   *  own personal board. */
+  historyLocked?: boolean;
 }
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(({
@@ -98,6 +122,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   pdfFile,
   onPdfLoaded,
   onPageChange,
+  pageNavLocked = false,
+  treatSnapshotAsBackground = false,
+  historyLocked = false,
 }, ref) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -135,10 +162,21 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false });
   const [histState, setHistState] = useState({ idx: -1, len: 0 });
 
+  // #66: queued collab-layer to paint after a programmatic page switch completes.
+  // Set by applyCollabLayer when we need to switch pages first; consumed by
+  // switchToPage's success path. Cleared after paint.
+  const pendingOverlayRef = useRef<HTMLCanvasElement | null>(null);
+
   // PDF state
   const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
   const hasPdfRef = useRef(false);
   const [hasPdf, setHasPdf] = useState(false);
+  // Mirror of the treatSnapshotAsBackground prop for the long-lived imperative handle.
+  const treatSnapshotAsBackgroundRef = useRef(treatSnapshotAsBackground);
+  useEffect(() => { treatSnapshotAsBackgroundRef.current = treatSnapshotAsBackground; }, [treatSnapshotAsBackground]);
+  // Mirror of historyLocked so undo/redo callbacks can read it freshly.
+  const historyLockedRef = useRef(historyLocked);
+  useEffect(() => { historyLockedRef.current = historyLocked; }, [historyLocked]);
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -286,6 +324,19 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     }
   }, [getCompositeDataURL]);
 
+  // #66: paint a captured collab layer on top of the current draw canvas WITHOUT
+  // clearing — student's existing personal annotations stay visible underneath
+  // (AC #10). Records the result in the undo history so the user can undo the
+  // merge if they want.
+  const paintOverlayNow = useCallback((src: HTMLCanvasElement) => {
+    const dst = canvasRef.current;
+    const ctx = dst?.getContext("2d");
+    if (!ctx || !dst) return;
+    const dpr = dprRef.current;
+    ctx.drawImage(src, 0, 0, dst.width / dpr, dst.height / dpr);
+    takeSnapshot();
+  }, [takeSnapshot]);
+
   const applyEntry = useCallback((entry: HistoryEntry, onApplied?: () => void) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
@@ -343,6 +394,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   }, [getBurnedCompositeDataURL]);
 
   const undo = useCallback(() => {
+    if (historyLockedRef.current) return;   // #66: only the teacher can rewind the shared canvas
     if (historyIdxRef.current <= 0) return;
     setEditingId(null);
     savedRangeRef.current = null;
@@ -352,6 +404,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   }, [applyEntry, flushAndResync]);
 
   const redo = useCallback(() => {
+    if (historyLockedRef.current) return;   // #66: same as undo
     if (historyIdxRef.current >= historyRef.current.length - 1) return;
     setEditingId(null);
     savedRangeRef.current = null;
@@ -388,6 +441,18 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     ctx.scale(dpr, dpr);
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, DEFAULT_PAGE_W, DEFAULT_PAGE_H);
+    // #66: when this canvas treats incoming snapshots as a background AND we'll
+    // be painting remote strokes onto bg, pre-size bgCanvas (matching drawCanvas)
+    // and DPR-scale its context so remote-stroke coords can use CSS pixels.
+    const bg = bgCanvasRef.current;
+    if (bg) {
+      bg.width = Math.round(DEFAULT_PAGE_W * dpr);
+      bg.height = Math.round(DEFAULT_PAGE_H * dpr);
+      bg.style.width = `${DEFAULT_PAGE_W}px`;
+      bg.style.height = `${DEFAULT_PAGE_H}px`;
+      const bgCtx = bg.getContext("2d");
+      if (bgCtx) bgCtx.scale(dpr, dpr);
+    }
     setLogicalW(DEFAULT_PAGE_W);
     setLogicalH(DEFAULT_PAGE_H);
     setTimeout(() => takeSnapshot(), 0);
@@ -446,6 +511,15 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     bgCanvas.style.height = `${cssH}px`;
     bgCanvas.style.background = "#FFFFFF";
     await page.render({ canvas: bgCanvas, viewport }).promise;
+    // #66: DPR-scale the bgCanvas context so REMOTE strokes (which may be routed
+    // here in multi-mode via paintRemoteStrokesOnBg) can be painted using CSS
+    // coords — same coord space as drawCanvas. The PDF pixels rendered above are
+    // unaffected; setting a transform only changes future drawing operations.
+    const bgCtx = bgCanvas.getContext("2d");
+    if (bgCtx) {
+      bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+      bgCtx.scale(dpr, dpr);
+    }
 
     // drawCanvas: same physical size, DPR-scaled so drawing uses CSS coords
     drawCanvas.width = physW;
@@ -547,6 +621,11 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.drawImage(img, 0, 0, cssW, cssH);
         textElemsRef.current = entry.textElements;
         setTextElements(entry.textElements);
+        // #66: if a collab layer was queued waiting for this page to load, paint it now.
+        if (pendingOverlayRef.current) {
+          paintOverlayNow(pendingOverlayRef.current);
+          pendingOverlayRef.current = null;
+        }
         flushAndResync();
       };
       img.src = entry.dataURL;
@@ -555,9 +634,17 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       historyRef.current = [];
       historyIdxRef.current = -1;
       setHistState({ idx: -1, len: 0 });
-      setTimeout(() => { takeSnapshot(); flushAndResync(); }, 0);
+      setTimeout(() => {
+        takeSnapshot();
+        // #66: drain queued collab layer if applyCollabLayer triggered the page switch.
+        if (pendingOverlayRef.current) {
+          paintOverlayNow(pendingOverlayRef.current);
+          pendingOverlayRef.current = null;
+        }
+        flushAndResync();
+      }, 0);
     }
-  }, [renderPdfPage, takeSnapshot, flushAndResync]);
+  }, [renderPdfPage, takeSnapshot, flushAndResync, paintOverlayNow]);
 
   // ── Selection helpers ──────────────────────────────────────────────────────
   const saveSelection = useCallback(() => {
@@ -623,7 +710,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.fill();
       }
       if (onStroke) {
-        onStroke({ action: "draw", x: pt.x, y: pt.y, previousX: pt.x, previousY: pt.y, color: "#FFFFFF", size: eraserSize });
+        onStroke({ action: "draw", x: pt.x, y: pt.y, previousX: pt.x, previousY: pt.y, color: "#FFFFFF", size: eraserSize, isEraser: true });
       }
     } else {
       ctx.beginPath();
@@ -666,7 +753,10 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.lineJoin = "round";
         ctx.stroke();
       }
-      // Send eraser as a lightweight white stroke so students see it without a snapshot
+      // Send eraser as a lightweight white stroke so students see it without a snapshot.
+      // isEraser=true tells the receiver to use destination-out compositing — required
+      // when their canvas has a PDF (otherwise the "white" paints over the PDF instead
+      // of erasing the draw layer above it).
       if (onStroke) {
         onStroke({
           action: "draw",
@@ -676,6 +766,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           previousY: lastPoint.current.y,
           color: "#FFFFFF",
           size: eraserSize,
+          isEraser: true,
         });
       }
     } else {
@@ -709,11 +800,15 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       isDrawing.current = false;
       lastPoint.current = null;
       takeSnapshot();
+      // #66: broadcast a stroke-end signal so other participants can take a
+      // history snapshot too. This gives the teacher one undo entry per stroke
+      // (regardless of who drew it) instead of per stroke-segment.
+      if (onStroke) onStroke({ action: "stroke-end" });
     } else {
       isDrawing.current = false;
       lastPoint.current = null;
     }
-  }, [takeSnapshot]);
+  }, [takeSnapshot, onStroke]);
 
   const clearCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -778,6 +873,19 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           ctx.fillStyle = "#FFFFFF";
           ctx.fillRect(0, 0, cssW, cssH);
         }
+        // #66: when this canvas treats snapshots as a background, also wipe the
+        // bg layer so the next snapshot (or "clear") doesn't leave stale remote
+        // strokes / a stale PDF image visible underneath after the shared canvas
+        // was cleared. bgCtx is DPR-scaled, so we use CSS coords here.
+        if (treatSnapshotAsBackgroundRef.current && bgCanvasRef.current) {
+          const bgCtx = bgCanvasRef.current.getContext("2d");
+          if (bgCtx) {
+            const bgCssW = bgCanvasRef.current.width / dprRef.current;
+            const bgCssH = bgCanvasRef.current.height / dprRef.current;
+            bgCtx.fillStyle = "#FFFFFF";
+            bgCtx.fillRect(0, 0, bgCssW, bgCssH);
+          }
+        }
         textElemsRef.current = [];
         setTextElements([]);
         return;
@@ -789,34 +897,97 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         const next = Array.isArray(stroke.textElements) ? stroke.textElements : [];
         textElemsRef.current = next;
         setTextElements(next);
+        // #66: capture the new text state as a discrete history entry so it can
+        // be undone independently — otherwise undo would rewind back past a
+        // history entry that pre-dates the text, taking the text with it.
+        takeSnapshot();
+        return;
+      }
+      // #66: signal that a remote sender finished a stroke. Trigger a local
+      // takeSnapshot so this canvas's undo history has one entry per stroke
+      // (not per stroke-segment).
+      if (stroke.action === "stroke-end") {
+        takeSnapshot();
         return;
       }
       if (stroke.action === "snapshot" && stroke.dataURL) {
         const img = new Image();
         img.onload = () => {
-          const c = canvasRef.current;
-          if (!c) return;
+          const drawC = canvasRef.current;
+          const bg = bgCanvasRef.current;
+          if (!drawC) return;
           const dpr = dprRef.current;
           const physW = img.naturalWidth;
           const physH = img.naturalHeight;
           const newCssW = physW / dpr;
           const newCssH = physH / dpr;
-          // Resize canvas + container when the teacher's PDF size differs from current size
-          const needsResize = c.width !== physW || c.height !== physH;
-          if (needsResize) {
-            c.width = physW;
-            c.height = physH;
-            c.style.width = `${newCssW}px`;
-            c.style.height = `${newCssH}px`;
-            setLogicalW(newCssW);
-            setLogicalH(newCssH);
+          // #66: when this canvas treats incoming snapshots as a background
+          // (e.g. the student's view of the teacher board in multi-mode), paint
+          // the snapshot onto bgCanvas and clear drawCanvas to transparent. That
+          // way the eraser's destination-out compositing only erases local
+          // strokes, leaving the streamed PDF/strokes from teacher visible.
+          if (treatSnapshotAsBackgroundRef.current && bg) {
+            const needsResize = drawC.width !== physW || drawC.height !== physH;
+            if (needsResize) {
+              drawC.width = physW;
+              drawC.height = physH;
+              drawC.style.width = `${newCssW}px`;
+              drawC.style.height = `${newCssH}px`;
+              bg.width = physW;
+              bg.height = physH;
+              bg.style.width = `${newCssW}px`;
+              bg.style.height = `${newCssH}px`;
+              setLogicalW(newCssW);
+              setLogicalH(newCssH);
+            }
+            const bgCtx = bg.getContext("2d");
+            if (!bgCtx) return;
+            // Reset + DPR-scale so coords match drawCanvas (CSS pixels) — that way
+            // remote strokes painted onto bgCanvas in applyRemoteStroke's "draw"
+            // branch use the same coord space as the local user's strokes.
+            bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+            bgCtx.scale(dpr, dpr);
+            bgCtx.fillStyle = "#FFFFFF";
+            bgCtx.fillRect(0, 0, newCssW, newCssH);
+            bgCtx.drawImage(img, 0, 0, newCssW, newCssH);
+            // Clear drawCanvas so old local strokes don't persist over a fresh snapshot
+            const drawCtx = drawC.getContext("2d");
+            if (drawCtx) {
+              if (needsResize) drawCtx.scale(dpr, dpr);
+              drawCtx.clearRect(0, 0, newCssW, newCssH);
+            }
+            // Activate hasPdf so the local eraser uses destination-out from now on.
+            // Also wipe the history: any pre-existing entries were taken when this
+            // canvas was the "everything" layer (including the initial white-fill).
+            // Undoing back into them would paint white over the PDF on bgCanvas.
+            // Re-seed history with a fresh transparent snapshot so undo can only
+            // restore *after* this moment.
+            if (!hasPdfRef.current) {
+              hasPdfRef.current = true;
+              setHasPdf(true);
+            }
+            historyRef.current = [];
+            historyIdxRef.current = -1;
+            setHistState({ idx: -1, len: 0 });
+            setTimeout(() => takeSnapshot(), 0);
+          } else {
+            // Default behaviour: paint snapshot to drawCanvas. Resize canvas if needed.
+            const needsResize = drawC.width !== physW || drawC.height !== physH;
+            if (needsResize) {
+              drawC.width = physW;
+              drawC.height = physH;
+              drawC.style.width = `${newCssW}px`;
+              drawC.style.height = `${newCssH}px`;
+              setLogicalW(newCssW);
+              setLogicalH(newCssH);
+            }
+            const freshCtx = drawC.getContext("2d");
+            if (!freshCtx) return;
+            if (needsResize) freshCtx.scale(dpr, dpr);
+            freshCtx.fillStyle = "#FFFFFF";
+            freshCtx.fillRect(0, 0, newCssW, newCssH);
+            freshCtx.drawImage(img, 0, 0, newCssW, newCssH);
           }
-          const freshCtx = c.getContext("2d");
-          if (!freshCtx) return;
-          if (needsResize) freshCtx.scale(dpr, dpr);
-          freshCtx.fillStyle = "#FFFFFF";
-          freshCtx.fillRect(0, 0, newCssW, newCssH);
-          freshCtx.drawImage(img, 0, 0, newCssW, newCssH);
         };
         img.src = stroke.dataURL;
         if (stroke.textElements !== undefined) {
@@ -827,21 +998,32 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       }
       if (stroke.action === "draw" && stroke.previousX != null && stroke.previousY != null && stroke.x != null && stroke.y != null) {
         const isDot = stroke.x === stroke.previousX && stroke.y === stroke.previousY;
+        // Remote strokes paint onto drawCanvas alongside local strokes. The teacher
+        // tracks all of them in history (one entry per stroke via "stroke-end") so
+        // their Undo can rewind stroke-by-stroke regardless of who drew it. Students
+        // have undo disabled on the shared canvas (historyLocked), so the mixing
+        // doesn't matter for them.
+        const useErase = stroke.isEraser === true && hasPdfRef.current;
+        if (useErase) ctx.save();
+        if (useErase) {
+          ctx.globalCompositeOperation = "destination-out";
+        }
         if (isDot) {
           ctx.beginPath();
           ctx.arc(stroke.x, stroke.y, (stroke.size ?? 4) / 2, 0, Math.PI * 2);
-          ctx.fillStyle = stroke.color ?? "#1A1A2E";
+          ctx.fillStyle = useErase ? "rgba(0,0,0,1)" : (stroke.color ?? "#1A1A2E");
           ctx.fill();
         } else {
           ctx.beginPath();
           ctx.moveTo(stroke.previousX, stroke.previousY);
           ctx.lineTo(stroke.x, stroke.y);
-          ctx.strokeStyle = stroke.color ?? "#1A1A2E";
+          ctx.strokeStyle = useErase ? "rgba(0,0,0,1)" : (stroke.color ?? "#1A1A2E");
           ctx.lineWidth = stroke.size ?? 4;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
           ctx.stroke();
         }
+        if (useErase) ctx.restore();
       }
     },
     getAllPageSnapshots: async (): Promise<string[]> => {
@@ -929,7 +1111,17 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
 
       return snapshots;
     },
-  }), [takeSnapshot, getBurnedCompositeDataURL]);
+    applyCollabLayer: (pageNum: number, layer: HTMLCanvasElement) => {
+      // If we have a PDF and we're not already on the right page, defer the paint
+      // until switchToPage finishes (it drains pendingOverlayRef on completion).
+      if (hasPdfRef.current && pageNum !== currentPageRef.current) {
+        pendingOverlayRef.current = layer;
+        switchToPage(pageNum);
+        return;
+      }
+      paintOverlayNow(layer);
+    },
+  }), [takeSnapshot, getBurnedCompositeDataURL, switchToPage, paintOverlayNow]);
 
   // ── Formatting ─────────────────────────────────────────────────────────────
   const applyFormat = useCallback((e: React.MouseEvent, command: string) => {
@@ -1094,10 +1286,20 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           </button>
           <Divider />
 
-          <button onClick={undo} title="Undo (⌘Z)" disabled={!canUndo} style={iconBtnStyle(false, !canUndo)}>
+          <button
+            onClick={undo}
+            title={historyLocked ? "Undo is disabled while multi-mode is active" : "Undo (⌘Z)"}
+            disabled={historyLocked || !canUndo}
+            style={iconBtnStyle(false, historyLocked || !canUndo)}
+          >
             <Undo2 size={18} />
           </button>
-          <button onClick={redo} title="Redo (⌘Y)" disabled={!canRedo} style={iconBtnStyle(false, !canRedo)}>
+          <button
+            onClick={redo}
+            title={historyLocked ? "Redo is disabled while multi-mode is active" : "Redo (⌘Y)"}
+            disabled={historyLocked || !canRedo}
+            style={iconBtnStyle(false, historyLocked || !canRedo)}
+          >
             <Redo2 size={18} />
           </button>
           <Divider />
@@ -1220,9 +1422,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
               {!allowPdf && <Divider />}
               <button
                 onClick={() => switchToPage(currentPage - 1)}
-                disabled={currentPage <= 1}
-                title="Previous page"
-                style={iconBtnStyle(false, currentPage <= 1)}
+                disabled={pageNavLocked || currentPage <= 1}
+                title={pageNavLocked ? "Page navigation is locked while multi-mode is active" : "Previous page"}
+                style={iconBtnStyle(false, pageNavLocked || currentPage <= 1)}
               >
                 <ChevronLeft size={16} />
               </button>
@@ -1234,9 +1436,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
               </span>
               <button
                 onClick={() => switchToPage(currentPage + 1)}
-                disabled={currentPage >= totalPages}
-                title="Next page"
-                style={iconBtnStyle(false, currentPage >= totalPages)}
+                disabled={pageNavLocked || currentPage >= totalPages}
+                title={pageNavLocked ? "Page navigation is locked while multi-mode is active" : "Next page"}
+                style={iconBtnStyle(false, pageNavLocked || currentPage >= totalPages)}
               >
                 <ChevronRight size={16} />
               </button>
