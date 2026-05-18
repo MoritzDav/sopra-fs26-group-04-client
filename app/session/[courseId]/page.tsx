@@ -128,9 +128,12 @@ function SessionPageInner() {
   const teacherCurrentPageRef = useRef<number>(1);
   const [studentPdfFile, setStudentPdfFile] = useState<File | undefined>();
   // Per-PDF annotation cache: filename → { offscreen canvas copy, textElements }
-  type AnnotationSnapshot = { offscreen: HTMLCanvasElement | null; textElements: TextElement[] };
+  type AnnotationSnapshot = { offscreen: HTMLCanvasElement | null; textElements: TextElement[]; pageSnapshots?: string[] };
   const pdfAnnotationsRef = useRef<Map<string, AnnotationSnapshot>>(new Map());
   const studentPdfAnnotationsRef = useRef<Map<string, AnnotationSnapshot>>(new Map());
+  // Snapshots captured just before sessionEnded=true unmounts the canvas components.
+  const preEndSnapshotsRef = useRef<string[]>([]);
+  const preEndAnnotationsRef = useRef<Map<string, AnnotationSnapshot>>(new Map());
   // Annotations to restore after the next PDF finishes loading
   const teacherPendingRestoreRef = useRef<AnnotationSnapshot | null>(null);
   const studentPendingRestoreRef = useRef<AnnotationSnapshot | null>(null);
@@ -444,7 +447,11 @@ function SessionPageInner() {
         `${getApiDomain()}/sessions/${sessionId}/files/${f.id}/summarize`,
         { method: "POST", headers: { Authorization: user.token } },
       );
-      if (!res.ok) throw new Error(`Summarize failed: ${res.status}`);
+      if (!res.ok) {
+        let detail = `${res.status}`;
+        try { const body = await res.json(); detail = body.message ?? body.detail ?? body.error ?? detail; } catch { /* not JSON */ }
+        throw new Error(detail);
+      }
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const nameMatch = disposition.match(/filename="?([^"]+)"?/);
@@ -457,6 +464,7 @@ function SessionPageInner() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Failed to summarize PDF:", err);
+      alert(err instanceof Error ? `Failed to summarize PDF: ${err.message}` : "Failed to summarize PDF.");
     } finally {
       setSummarizingIds(prev => { const next = new Set(prev); next.delete(f.id); return next; });
     }
@@ -464,17 +472,23 @@ function SessionPageInner() {
 
   // Load a file from the panel list onto the whiteboard without re-uploading.
   // Captures current annotations first so they survive the PDF switch.
-  const loadFileOnWhiteboard = useCallback((f: SessionFile) => {
+  const loadFileOnWhiteboard = useCallback(async (f: SessionFile) => {
     const isTeacher = user?.role === "TEACHER";
     const boardRef = isTeacher ? teacherEditBoardRef : studentBoardRef;
     const annotationsMap = isTeacher ? pdfAnnotationsRef : studentPdfAnnotationsRef;
     const pendingRef = isTeacher ? teacherPendingRestoreRef : studentPendingRestoreRef;
     const currentName = (isTeacher ? sessionPdfFileRef : studentPdfFileRef).current?.name;
 
-    // Save current annotations before switching away
+    // Save current annotations before switching away. For students also capture the full
+    // page composites (PDF bg + strokes) so the ZIP export includes the actual PDF content.
     if (currentName) {
       const snap = boardRef.current?.captureAnnotations();
-      if (snap?.offscreen) annotationsMap.current.set(currentName, snap);
+      if (snap?.offscreen) {
+        const pageSnapshots = !isTeacher
+          ? await (boardRef.current?.getAllPageSnapshots() ?? Promise.resolve([]))
+          : undefined;
+        annotationsMap.current.set(currentName, { ...snap, pageSnapshots });
+      }
     }
     // Queue annotations to restore when the new PDF finishes loading
     pendingRef.current = annotationsMap.current.get(f.fileName) ?? null;
@@ -493,11 +507,14 @@ function SessionPageInner() {
   }, [user?.role]);
 
   // Load a student's own local file onto their personal whiteboard (no backend upload).
-  const loadStudentLocalFile = useCallback((file: File) => {
+  const loadStudentLocalFile = useCallback(async (file: File) => {
     const currentName = studentPdfFileRef.current?.name;
     if (currentName) {
       const snap = studentBoardRef.current?.captureAnnotations();
-      if (snap?.offscreen) studentPdfAnnotationsRef.current.set(currentName, snap);
+      if (snap?.offscreen) {
+        const pageSnapshots = await (studentBoardRef.current?.getAllPageSnapshots() ?? Promise.resolve([]));
+        studentPdfAnnotationsRef.current.set(currentName, { ...snap, pageSnapshots });
+      }
     }
     studentPendingRestoreRef.current = studentPdfAnnotationsRef.current.get(file.name) ?? null;
     skipNextPdfUploadRef.current = true;
@@ -675,6 +692,16 @@ function SessionPageInner() {
     return () => { destroyed = true; ws?.close(); };
   }, [sessionId, user]);
 
+  // Captures all page snapshots and the annotation map right before the canvas unmounts
+  // (sessionEnded=true causes an early return that removes canvas from DOM).
+  const captureBeforeEnd = useCallback(async () => {
+    if (user?.role !== "STUDENT") return;
+    const pages = await (studentBoardRef.current?.getAllPageSnapshots() ?? Promise.resolve([]));
+    if (pages.length === 0 && studentSnapshotRef.current) pages.push(studentSnapshotRef.current);
+    preEndSnapshotsRef.current = pages;
+    preEndAnnotationsRef.current = new Map(studentPdfAnnotationsRef.current);
+  }, [user?.role]);
+
  // Check on mount if session is already ended (prevents joining an ended session)
   useEffect(() => {
     if (user?.role === "TEACHER" || !sessionId || !courseId || !user?.token) return;
@@ -686,10 +713,10 @@ function SessionPageInner() {
           { signal: AbortSignal.timeout(4000) }
         );
         const current = sessions.find(s => s.sessionId === Number(sessionId));
-        if (current && !current.active) setSessionEnded(true);
+        if (current && !current.active) { await captureBeforeEnd(); setSessionEnded(true); }
       } catch { /* non-critical */ }
     })();
-  }, [sessionId, courseId, user?.role, user?.token, apiService]);
+  }, [sessionId, courseId, user?.role, user?.token, apiService, captureBeforeEnd]);
   
   // #69: Load real enrolled students of the course so the teacher's "Select Whiteboard" tabs
   // and the student dropdown are populated with actual users instead of a placeholder.
@@ -1029,13 +1056,14 @@ function SessionPageInner() {
         const current = sessions.find(s => s.sessionId === Number(sessionId));
         console.log("Poll — current session:", current);
         if (current && !current.active) {
+          await captureBeforeEnd();
           setSessionEnded(true);
           clearInterval(interval);
         }
       } catch (err) { console.error("Poll error:", err); }
     }, 5000);
     return () => clearInterval(interval);
-  }, [sessionId, courseId, user?.role, user?.token, apiService]);
+  }, [sessionId, courseId, user?.role, user?.token, apiService, captureBeforeEnd]);
 
   const role = user?.role ?? "";
 
@@ -1596,67 +1624,71 @@ function SessionPageInner() {
           <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
             <button
               onClick={async () => {
-                // Render all student whiteboard pages to PNG data URLs.
-                // Falls back to the last live snapshot if no PDF was loaded.
-                const studentPages = await (studentBoardRef.current?.getAllPageSnapshots() ?? Promise.resolve([]));
-                if (studentSnapshotRef.current && studentPages.length === 0) {
-                  studentPages.push(studentSnapshotRef.current);
+                const { default: JSZip } = await import("jszip");
+                const zip = new JSZip();
+                const slug = sessionTitle.replace(/[^a-zA-Z0-9\-_]/g, "_");
+
+                // Build a jsPDF blob from an array of JPEG data URLs (one per page).
+                const pagesToPdfBlob = async (pages: string[]): Promise<Blob | null> => {
+                  if (pages.length === 0) return null;
+                  const { w, h } = await new Promise<{ w: number; h: number }>(resolve => {
+                    const img = new Image();
+                    img.onload = () => resolve({ w: img.naturalWidth || 1190, h: img.naturalHeight || 1684 });
+                    img.onerror = () => resolve({ w: 1190, h: 1684 });
+                    img.src = pages[0];
+                  });
+                  const orient = w >= h ? "landscape" : "portrait";
+                  const pdf = new jsPDF({ orientation: orient, unit: "px", format: [w, h] });
+                  for (let i = 0; i < pages.length; i++) {
+                    if (i > 0) pdf.addPage([w, h], orient);
+                    pdf.addImage(pages[i], "JPEG", 0, 0, w, h);
+                  }
+                  return pdf.output("blob");
+                };
+
+                // 1. Current PDF — all pages captured before the canvas unmounted.
+                const currentPages = preEndSnapshotsRef.current;
+                const currentPdfName = studentPdfFileRef.current?.name?.replace(/\.pdf$/i, "") ?? "notes";
+                const currentBlob = await pagesToPdfBlob(currentPages);
+                if (currentBlob) zip.file(`${currentPdfName}.pdf`, currentBlob);
+
+                // 2. Previously visited PDFs — use full composites (PDF bg + strokes) captured on switch.
+                //    Falls back to annotation-layer-on-white if composites weren't captured.
+                for (const [fileName, snap] of preEndAnnotationsRef.current.entries()) {
+                  const baseName = fileName.replace(/\.pdf$/i, "");
+                  if (baseName === currentPdfName) continue;
+                  if (snap.pageSnapshots && snap.pageSnapshots.length > 0) {
+                    const blob = await pagesToPdfBlob(snap.pageSnapshots);
+                    if (blob) zip.file(`${baseName}.pdf`, blob);
+                  } else if (snap.offscreen) {
+                    const dpr = window.devicePixelRatio || 1;
+                    const w = snap.offscreen.width / dpr;
+                    const h = snap.offscreen.height / dpr;
+                    const off = document.createElement("canvas");
+                    off.width = snap.offscreen.width;
+                    off.height = snap.offscreen.height;
+                    const ctx = off.getContext("2d");
+                    if (ctx) {
+                      ctx.fillStyle = "#FFFFFF";
+                      ctx.fillRect(0, 0, off.width, off.height);
+                      ctx.drawImage(snap.offscreen, 0, 0);
+                    }
+                    const orient = w >= h ? "landscape" : "portrait";
+                    const pdf = new jsPDF({ orientation: orient, unit: "px", format: [w, h] });
+                    pdf.addImage(off.toDataURL("image/jpeg", 0.88), "JPEG", 0, 0, w, h);
+                    zip.file(`${baseName}.pdf`, pdf.output("blob"));
+                  }
                 }
 
-                // Reconstruct an ordered teacher page array from the accumulated snapshot map.
-                // Pages the teacher never navigated to are filled with the last known snapshot
-                // so there are no unexpected blank halves.
-                const snapsMap = teacherPageSnapsRef.current;
-                const maxPage = snapsMap.size > 0 ? Math.max(...snapsMap.keys()) : 0;
-                const teacherPages: string[] = [];
-                let lastKnown = "";
-                for (let i = 1; i <= maxPage; i++) {
-                  const s = snapsMap.get(i);
-                  if (s) lastKnown = s;
-                  teacherPages.push(lastKnown);
-                }
+                if (Object.keys(zip.files).length === 0) return;
 
-                const totalPages = Math.max(teacherPages.length, studentPages.length);
-                if (totalPages === 0) return;
-
-                // Infer the half-page dimensions from the first available snapshot
-                // (fall back to A4 portrait pixel dimensions if nothing is available).
-                const firstSrc = teacherPages[0] || studentPages[0] || "";
-                const halfW = await new Promise<number>(res => {
-                  if (!firstSrc) { res(1190); return; }
-                  const img = new Image();
-                  img.onload = () => res(img.naturalWidth || 1190);
-                  img.onerror = () => res(1190);
-                  img.src = firstSrc;
-                });
-                const halfH = await new Promise<number>(res => {
-                  if (!firstSrc) { res(1684); return; }
-                  const img = new Image();
-                  img.onload = () => res(img.naturalHeight || 1684);
-                  img.onerror = () => res(1684);
-                  img.src = firstSrc;
-                });
-
-                // Each PDF page is landscape with the teacher board on the left half
-                // and the student board on the right half.
-                const pdfW = halfW * 2;
-                const pdfH = halfH;
-                const pdf = new jsPDF({ orientation: "landscape", unit: "px", format: [pdfW, pdfH] });
-
-                for (let i = 0; i < totalPages; i++) {
-                  if (i > 0) pdf.addPage([pdfW, pdfH], "landscape");
-                  const tSrc = teacherPages[i] ?? "";
-                  const sSrc = studentPages[i] ?? "";
-                  if (tSrc) pdf.addImage(tSrc, "PNG", 0, 0, halfW, halfH);
-                  if (sSrc) pdf.addImage(sSrc, "PNG", halfW, 0, halfW, halfH);
-                  // Thin grey divider at the centre boundary between the two halves
-                  pdf.setDrawColor(180, 180, 180);
-                  pdf.setLineWidth(1);
-                  pdf.line(halfW, 0, halfW, halfH);
-                }
-
-                const name = `${sessionTitle}_${user?.firstName}_${user?.lastName}`.replace(/\s+/g, "_");
-                pdf.save(`${name}.pdf`);
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                const url = URL.createObjectURL(zipBlob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${slug}-MyNotes.zip`;
+                a.click();
+                URL.revokeObjectURL(url);
               }}
               style={{
                 background: "rgba(91,108,255,0.08)", border: "1px solid rgba(91,108,255,0.2)",
@@ -1664,7 +1696,7 @@ function SessionPageInner() {
                 fontSize: "14px", fontWeight: 600, cursor: "pointer",
               }}
             >
-              Save own whiteboard as PDF
+              Save notes as ZIP
             </button>
             <button
               onClick={() => router.back()}
@@ -1701,6 +1733,7 @@ function SessionPageInner() {
             try {
               await apiService.delete(`/courses/${courseId}/sessions/${sessionId}/leave`, user?.token ?? undefined);
             } catch { /* non-critical — still show leave screen even if backend call fails */ }
+            await captureBeforeEnd();
             setLeaveReason("self");
             setSessionEnded(true);
           }}

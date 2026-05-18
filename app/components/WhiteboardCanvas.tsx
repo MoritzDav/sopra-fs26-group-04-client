@@ -1071,7 +1071,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           });
         }
 
-        snapshots.push(off.toDataURL());
+        snapshots.push(off.toDataURL("image/jpeg", 0.88));
       }
 
       return snapshots;
