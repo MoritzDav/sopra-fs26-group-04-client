@@ -144,3 +144,6 @@ yarn-error.log*
 
 # local build helpers
 /empty-module.js
+
+# Local Claude Code agent config
+.claude/

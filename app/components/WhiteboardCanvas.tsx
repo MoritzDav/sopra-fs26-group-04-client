@@ -66,10 +66,6 @@ export interface WhiteboardCanvasHandle {
   restoreAnnotations: (offscreen: HTMLCanvasElement | null, textElements: TextElement[]) => void;
   /** Returns composite PNG data URLs for every PDF page (or a single snapshot if no PDF is loaded). */
   getAllPageSnapshots: () => Promise<string[]>;
-  /** #66: Overlay a captured collaborative-canvas layer onto the personal board at the
-   *  given PDF page. Switches the page first if needed (async). Does NOT clear existing
-   *  drawings — uses drawImage on top so the student's prior annotations remain underneath. */
-  applyCollabLayer: (pageNum: number, layer: HTMLCanvasElement) => void;
 }
 
 interface WhiteboardCanvasProps {
@@ -161,11 +157,6 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false });
   const [histState, setHistState] = useState({ idx: -1, len: 0 });
-
-  // #66: queued collab-layer to paint after a programmatic page switch completes.
-  // Set by applyCollabLayer when we need to switch pages first; consumed by
-  // switchToPage's success path. Cleared after paint.
-  const pendingOverlayRef = useRef<HTMLCanvasElement | null>(null);
 
   // PDF state
   const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
@@ -323,19 +314,6 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       }, 1500);
     }
   }, [getCompositeDataURL]);
-
-  // #66: paint a captured collab layer on top of the current draw canvas WITHOUT
-  // clearing — student's existing personal annotations stay visible underneath
-  // (AC #10). Records the result in the undo history so the user can undo the
-  // merge if they want.
-  const paintOverlayNow = useCallback((src: HTMLCanvasElement) => {
-    const dst = canvasRef.current;
-    const ctx = dst?.getContext("2d");
-    if (!ctx || !dst) return;
-    const dpr = dprRef.current;
-    ctx.drawImage(src, 0, 0, dst.width / dpr, dst.height / dpr);
-    takeSnapshot();
-  }, [takeSnapshot]);
 
   const applyEntry = useCallback((entry: HistoryEntry, onApplied?: () => void) => {
     const canvas = canvasRef.current;
@@ -621,11 +599,6 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
         ctx.drawImage(img, 0, 0, cssW, cssH);
         textElemsRef.current = entry.textElements;
         setTextElements(entry.textElements);
-        // #66: if a collab layer was queued waiting for this page to load, paint it now.
-        if (pendingOverlayRef.current) {
-          paintOverlayNow(pendingOverlayRef.current);
-          pendingOverlayRef.current = null;
-        }
         flushAndResync();
       };
       img.src = entry.dataURL;
@@ -634,17 +607,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       historyRef.current = [];
       historyIdxRef.current = -1;
       setHistState({ idx: -1, len: 0 });
-      setTimeout(() => {
-        takeSnapshot();
-        // #66: drain queued collab layer if applyCollabLayer triggered the page switch.
-        if (pendingOverlayRef.current) {
-          paintOverlayNow(pendingOverlayRef.current);
-          pendingOverlayRef.current = null;
-        }
-        flushAndResync();
-      }, 0);
+      setTimeout(() => { takeSnapshot(); flushAndResync(); }, 0);
     }
-  }, [renderPdfPage, takeSnapshot, flushAndResync, paintOverlayNow]);
+  }, [renderPdfPage, takeSnapshot, flushAndResync]);
 
   // ── Selection helpers ──────────────────────────────────────────────────────
   const saveSelection = useCallback(() => {
@@ -1111,17 +1076,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
 
       return snapshots;
     },
-    applyCollabLayer: (pageNum: number, layer: HTMLCanvasElement) => {
-      // If we have a PDF and we're not already on the right page, defer the paint
-      // until switchToPage finishes (it drains pendingOverlayRef on completion).
-      if (hasPdfRef.current && pageNum !== currentPageRef.current) {
-        pendingOverlayRef.current = layer;
-        switchToPage(pageNum);
-        return;
-      }
-      paintOverlayNow(layer);
-    },
-  }), [takeSnapshot, getBurnedCompositeDataURL, switchToPage, paintOverlayNow]);
+  }), [takeSnapshot, getBurnedCompositeDataURL]);
 
   // ── Formatting ─────────────────────────────────────────────────────────────
   const applyFormat = useCallback((e: React.MouseEvent, command: string) => {

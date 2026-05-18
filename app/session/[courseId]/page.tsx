@@ -570,8 +570,7 @@ function SessionPageInner() {
             return;
           }
 
-console.log("[WS] msg received action:", msg.action, "from userId:", msg.userId, "myId:", user.id, "size:", msg.size);
-if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.log("[WS] skipped (own message)"); return; }
+          if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) return;
 
           // #66: during multi-mode, every participant is drawing on the shared
           // teacher canvas — accept strokes from ANY sender. Otherwise keep the
@@ -579,20 +578,15 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
           if (!collaborationActiveRef.current) {
             const currentSelectedStudentId = selectedStudentIdRef.current;
             const expectedSenderId = currentSelectedStudentId !== null ? currentSelectedStudentId : teacherUserId;
-            console.log("[WS] expectedSenderId:", expectedSenderId, "msg.userId:", msg.userId);
-            if (expectedSenderId !== undefined && Number(msg.userId) !== expectedSenderId) { console.log("[WS] skipped (wrong sender)"); return; }
-          } else {
-            console.log("[WS] multi-mode active — accepting from any sender");
+            if (expectedSenderId !== undefined && Number(msg.userId) !== expectedSenderId) return;
           }
 
           if (msg.action === "draw" && msg.size === -999) {
             const pageNum: number = msg.teacherPageNum ?? 1;
-            console.log("[WS] resync sentinel received, fetching snapshot for page", pageNum);
             apiService.get<{ canvasSnapshot?: string }>(
               `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
               user.token ?? undefined,
             ).then(data => {
-              console.log("[WS] snapshot fetched, has data:", !!data.canvasSnapshot);
               if (data.canvasSnapshot) {
                 teacherPageSnapsRef.current.set(pageNum, data.canvasSnapshot);
                 teacherBoardRef.current?.applyRemoteStroke({
@@ -600,12 +594,11 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
                   dataURL: data.canvasSnapshot,
                 });
               }
-            }).catch((e) => { console.error("[WS] snapshot fetch failed:", e); });
+            }).catch(() => { /* non-critical — fetch retried on next resync */ });
             return;
           }
 
           if (msg.size !== -999) {
-            console.log("[WS] applyRemoteStroke action:", msg.action, "textElements:", msg.textElements?.length);
             const strokePayload = {
               action: msg.action,
               x: msg.x,
@@ -674,18 +667,6 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
           }
           if (msg.type === "collaboration-end") {
             setCollaborationActive(false);
-            // #66 (AC #9 + #10): on collaboration end, stamp the shared canvas onto
-            // each student's personal whiteboard at the teacher's current page. The
-            // existing personal annotations stay underneath because applyCollabLayer
-            // uses drawImage without clearing. Teachers don't have a personal board,
-            // so this is student-only.
-            if (user?.role !== "TEACHER" && teacherBoardRef.current && studentBoardRef.current) {
-              const snap = teacherBoardRef.current.captureAnnotations();
-              if (snap.offscreen) {
-                const teacherPage = teacherCurrentPageRef.current ?? 1;
-                studentBoardRef.current.applyCollabLayer(teacherPage, snap.offscreen);
-              }
-            }
           }
         } catch { /* non-critical */ }
       };
@@ -951,17 +932,13 @@ if (msg.userId && user.id && Number(msg.userId) === Number(user.id)) { console.l
 // Persist the teacher's whiteboard state to the backend (debounced during drawing).
   const handleSaveSnapshot = useCallback(async (dataURL: string) => {
     if (!courseId || !sessionId || !user?.token) return;
-    console.log("[handleSaveSnapshot] PUT start, snapshot size:", dataURL.length);
     try {
       await apiService.put(
         `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
         { canvasSnapshot: dataURL },
         user.token,
       );
-      console.log("[handleSaveSnapshot] PUT done");
-    } catch (e) {
-      console.error("[handleSaveSnapshot] PUT failed:", e);
-    }
+    } catch { /* non-critical — drawing still works even if save fails */ }
     // Persist the draw-only annotation layer to sessionStorage so it can be restored on top of
     // the PDF after a page reload (initialSnapshot is skipped when a PDF is set, so the
     // composite saved to the backend isn't enough by itself).
