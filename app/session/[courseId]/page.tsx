@@ -556,18 +556,40 @@ function SessionPageInner() {
             // #69: If THIS client is the newly selected student, immediately broadcast a fresh
             // snapshot of their personal whiteboard so the teacher (and everyone else) sees the
             // student's CURRENT state on selection — not a stale debounced version.
+            // Use the FULL composite (PDF background + strokes + text) — captureAnnotations
+            // would only return the strokes layer, and JPEG encoding of a mostly-transparent
+            // canvas paints the transparent areas BLACK on the receiver.
             if (newId !== null && Number(user?.id) === newId) {
-              const snap = studentBoardRef.current?.captureAnnotations();
-              if (snap?.offscreen && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              const board = studentBoardRef.current;
+              const textElements = board?.captureAnnotations().textElements ?? [];
+              board?.captureComposite().then(async (compositePng) => {
+                if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+                // Compress the composite PNG to JPEG to stay under the WS text-buffer.
+                const jpeg = await new Promise<string>((resolve) => {
+                  const img = new Image();
+                  img.onload = () => {
+                    const off = document.createElement("canvas");
+                    off.width = img.naturalWidth;
+                    off.height = img.naturalHeight;
+                    const ctx = off.getContext("2d");
+                    if (!ctx) return resolve(compositePng);
+                    ctx.fillStyle = "#FFFFFF";
+                    ctx.fillRect(0, 0, off.width, off.height);
+                    ctx.drawImage(img, 0, 0);
+                    resolve(off.toDataURL("image/jpeg", 0.6));
+                  };
+                  img.onerror = () => resolve(compositePng);
+                  img.src = compositePng;
+                });
                 wsRef.current.send(JSON.stringify({
                   action: "student-snapshot",
-                  dataURL: snap.offscreen.toDataURL("image/jpeg", 0.6),
-                  textElements: snap.textElements ?? [],
+                  dataURL: jpeg,
+                  textElements,
                   courseId: Number(courseId),
                   userId: Number(user.id),
                   timestamp: Date.now(),
                 }));
-              }
+              });
             }
             return;
           }
@@ -584,6 +606,27 @@ function SessionPageInner() {
             const dataURL = msg.dataURL as string;
             const textElements = (Array.isArray(msg.textElements) ? msg.textElements : []) as TextElement[];
             setStudentSnapshots(prev => ({ ...prev, [senderId]: { dataURL, textElements } }));
+            return;
+          }
+
+          // #14 (multi-mode): student undo/redo/clear/text on the shared canvas
+          // broadcasts the new shared-canvas state via WS (backend save is teacher-only,
+          // so the HTTP+ping path doesn't work for students). Apply it directly to
+          // the shared canvas on every receiver, and also to the teacher's My Board.
+          if (msg.action === "shared-snapshot" && msg.dataURL && typeof msg.userId === "number") {
+            // Ignore our own echo — local undo already updated our canvas.
+            if (user.id && Number(msg.userId) === Number(user.id)) return;
+            if (!collaborationActiveRef.current) return;
+            const textElements = (Array.isArray(msg.textElements) ? msg.textElements : []) as TextElement[];
+            const payload = {
+              action: "snapshot" as const,
+              dataURL: msg.dataURL as string,
+              textElements,
+            };
+            teacherBoardRef.current?.applyRemoteStroke(payload);
+            if (user.role === "TEACHER") {
+              teacherEditBoardRef.current?.applyRemoteStroke(payload);
+            }
             return;
           }
 
@@ -717,6 +760,29 @@ function SessionPageInner() {
       } catch { /* non-critical */ }
     })();
   }, [sessionId, courseId, user?.role, user?.token, apiService, captureBeforeEnd]);
+
+  // #14 (multi-mode): if the teacher already turned multi-mode on BEFORE this
+  // client joined, the session WebSocket won't re-broadcast collaboration-start —
+  // it only emits transitions. Read the current Session.mode once on mount and
+  // prime collaborationActive so late joiners (and page reloads during an active
+  // collab) immediately see the right state.
+  useEffect(() => {
+    if (!sessionId || !courseId || !user?.token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessions = await apiService.get<Array<{ sessionId: number; mode?: string }>>(
+          `/courses/${courseId}/sessions`,
+          user.token ?? undefined,
+          { signal: AbortSignal.timeout(4000) }
+        );
+        if (cancelled) return;
+        const current = sessions.find(s => s.sessionId === Number(sessionId));
+        if (current?.mode === "MULTI_MODE") setCollaborationActive(true);
+      } catch { /* non-critical */ }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId, courseId, user?.token, apiService]);
   
   // #69: Load real enrolled students of the course so the teacher's "Select Whiteboard" tabs
   // and the student dropdown are populated with actual users instead of a placeholder.
@@ -816,17 +882,46 @@ function SessionPageInner() {
     }));
   }, [courseId, user?.id]);
 
-  // #66: text additions / edits / clears on the shared canvas don't go through
-  // onStroke — they go through onResync (after the canvas commits text /
-  // undo / redo / clear via flushAndResync). Broadcast a tiny "set-text" so
-  // every participant updates their text overlays. The teacherEditBoardRef
-  // routing in ws.onmessage applies it to the teacher's My Board too.
-  const handleCollabResync = useCallback((_composite: string, textElements: TextElement[]) => {
+  // #66/#14: text/undo/clear on the shared canvas. Broadcast a small "set-text"
+  // so every participant updates their text overlays. Also broadcast a
+  // compressed JPEG "shared-snapshot" so participants can apply the new canvas
+  // state — required for the student's undo to be globally visible (the backend
+  // PUT is teacher-only, so students can't use the teacher's HTTP+ping resync;
+  // we ship the full canvas over WS instead).
+  const handleCollabResync = useCallback(async (composite: string, textElements: TextElement[]) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (!collaborationActiveRef.current) return;
+    // 1. Small text-elements broadcast (always fits in the WS buffer).
     ws.send(JSON.stringify({
       action: "set-text",
+      textElements,
+      courseId: Number(courseId),
+      userId: user?.id ? Number(user.id) : null,
+      timestamp: Date.now(),
+    }));
+    // 2. JPEG-compressed snapshot of the shared canvas. Recipients apply this
+    // directly to their shared-canvas refs (teacherBoardRef + teacherEditBoardRef
+    // for the teacher in multi-mode).
+    const jpeg = await new Promise<string>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const off = document.createElement("canvas");
+        off.width = img.naturalWidth;
+        off.height = img.naturalHeight;
+        const ctx = off.getContext("2d");
+        if (!ctx) return resolve(composite);
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, off.width, off.height);
+        ctx.drawImage(img, 0, 0);
+        resolve(off.toDataURL("image/jpeg", 0.6));
+      };
+      img.onerror = () => resolve(composite);
+      img.src = composite;
+    });
+    ws.send(JSON.stringify({
+      action: "shared-snapshot",
+      dataURL: jpeg,
       textElements,
       courseId: Number(courseId),
       userId: user?.id ? Number(user.id) : null,
@@ -1831,22 +1926,33 @@ function SessionPageInner() {
             }}
         >
             {/* Left: teacher's whiteboard (read-only) */}
-            {/* #67: same red-border treatment as the teacher's view so students can also
-                see at a glance when multi-mode is active. We override the default soft
-                grey card shadow with a bold red halo when active to match the teacher's
-                visual feedback. */}
+            {/* #67: red-border treatment so students see when multi-mode is on.
+                The border is drawn by an absolutely-positioned overlay div (rendered
+                on top of the inner WhiteboardCanvas) so it can't be obscured by any
+                opaque background inside the canvas, nor clipped by the parent's
+                overflow:hidden. */}
             <div style={{
                 flex: splitRatio,
                 minWidth: 0,
                 overflow: "hidden",
                 borderRadius: "12px",
                 background: "white",
-                border: collaborationActive ? "3px solid #DC2626" : "3px solid transparent",
                 boxShadow: collaborationActive
                     ? "0 0 0 3px rgba(220,38,38,0.20), 0 4px 16px rgba(220,38,38,0.25)"
                     : "0 4px 16px rgba(0,0,0,0.08)",
-                transition: "border-color 0.2s, box-shadow 0.2s",
+                transition: "box-shadow 0.2s",
+                position: "relative",
             }}>
+                {collaborationActive && (
+                  <div style={{
+                    position: "absolute",
+                    inset: 0,
+                    borderRadius: "12px",
+                    border: "4px solid #DC2626",
+                    pointerEvents: "none",
+                    zIndex: 50,
+                  }} />
+                )}
                 <WhiteboardCanvas
                   ref={teacherBoardRef}
                   // #66: editable for the student while collab mode is on (so they
@@ -1872,9 +1978,14 @@ function SessionPageInner() {
                   // (it'll see hasPdf=true after the first snapshot) to erase ONLY local
                   // strokes, leaving the streamed PDF visible.
                   treatSnapshotAsBackground
-                  // #66: only the teacher can rewind the shared canvas — disable the
-                  // student's undo/redo here so they don't desync the collab view.
-                  historyLocked={collaborationActive}
+                  // #14 (multi-mode): student undo on the shared canvas IS allowed
+                  // and broadcasts via handleCollabResync → shared-snapshot, so every
+                  // participant ends up on the same state. The button stays enabled.
+                  // (Earlier we set historyLocked here, but per request the student
+                  // can now rewind their own strokes globally.)
+                  // #14: only the teacher should be able to wipe the shared canvas;
+                  // hide the student's trash button while collab is on.
+                  clearLocked={collaborationActive}
                 />
             </div>
 
@@ -1936,8 +2047,15 @@ function SessionPageInner() {
                   allowPdf={false}
                   pdfFile={studentPdfFile}
                   onPdfLoaded={handleStudentPdfLoaded}
-                  onStroke={handleStudentStroke}
-                  onResync={handleStudentResync}
+                  // #14 (multi-mode): in multi-mode the personal board is FULLY local.
+                  // Gating these two callbacks to undefined stops any WS broadcast from
+                  // here, so drawings / undo / clear / text on the personal canvas
+                  // never reach the teacher's My Board. The shared board (left panel,
+                  // teacherBoardRef) is the only multi-mode broadcast channel.
+                  // onCompositeSnapshot stays wired — it only persists locally to the
+                  // backend (handleSaveStudentSnapshot) and never broadcasts.
+                  onStroke={collaborationActive ? undefined : handleStudentStroke}
+                  onResync={collaborationActive ? undefined : handleStudentResync}
                   onCompositeSnapshot={(url) => { studentSnapshotRef.current = url; handleSaveStudentSnapshot(url); }}
                 />
             </div>
