@@ -66,6 +66,10 @@ export interface WhiteboardCanvasHandle {
   restoreAnnotations: (offscreen: HTMLCanvasElement | null, textElements: TextElement[]) => void;
   /** Returns composite PNG data URLs for every PDF page (or a single snapshot if no PDF is loaded). */
   getAllPageSnapshots: () => Promise<string[]>;
+  /** Returns a single composite PNG of the CURRENT page — PDF background + strokes + text burned in.
+   *  Used when broadcasting a snapshot so the receiver sees the PDF, not just transparent strokes
+   *  (JPEG compression turns transparent pixels black). */
+  captureComposite: () => Promise<string>;
 }
 
 interface WhiteboardCanvasProps {
@@ -104,6 +108,10 @@ interface WhiteboardCanvasProps {
    *  teacher can rewind the shared canvas; students can still undo on their
    *  own personal board. */
   historyLocked?: boolean;
+  /** When true, the "clear annotations" (trash) button is hidden from the
+   *  toolbar. Used on the student's shared view during multi-mode so that only
+   *  the teacher can wipe the shared canvas. */
+  clearLocked?: boolean;
 }
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(({
@@ -121,6 +129,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   pageNavLocked = false,
   treatSnapshotAsBackground = false,
   historyLocked = false,
+  clearLocked = false,
 }, ref) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1076,6 +1085,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
 
       return snapshots;
     },
+    captureComposite: () => getBurnedCompositeDataURL(),
   }), [takeSnapshot, getBurnedCompositeDataURL]);
 
   // ── Formatting ─────────────────────────────────────────────────────────────
@@ -1400,14 +1410,17 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
             </>
           )}
 
-          <Divider />
-
-          <button
-            onClick={clearCanvas} title="Clear annotations"
-            style={{ ...iconBtnStyle(false), color: "#EF4444", borderColor: "rgba(239,68,68,0.2)", background: "rgba(239,68,68,0.06)" }}
-          >
-            <Trash2 size={18} />
-          </button>
+          {!clearLocked && (
+            <>
+              <Divider />
+              <button
+                onClick={clearCanvas} title="Clear annotations"
+                style={{ ...iconBtnStyle(false), color: "#EF4444", borderColor: "rgba(239,68,68,0.2)", background: "rgba(239,68,68,0.06)" }}
+              >
+                <Trash2 size={18} />
+              </button>
+            </>
+          )}
 
           <Divider />
 
