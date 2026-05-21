@@ -14,7 +14,7 @@ import { useUser } from "@/contexts/UserContext";
 import { User, Pencil, X, Check, Lock, ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { useApi } from "@/hooks/useApi";
-
+import { toFriendlyError } from "@/utils/errors";
 
 const Profile: React.FC = () => {
     const router = useRouter();
@@ -69,7 +69,7 @@ const Profile: React.FC = () => {
             setEditingField(null);
         } catch (err) {
             if (err instanceof Error) {
-                setError(err.message);
+                setError(toFriendlyError(err));
             }
         }
     };
@@ -90,7 +90,7 @@ const Profile: React.FC = () => {
             router.push("/login");
         } catch (err) {
             if (err instanceof Error) {
-                setError(err.message);
+                setError(toFriendlyError(err));
             }
         }
     };
