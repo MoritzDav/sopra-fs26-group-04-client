@@ -85,6 +85,21 @@ function SessionPageInner() {
   const [chatInput, setChatInput] = useState("");
   const chatWsRef = useRef<WebSocket | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Load chat messages from sessionStorage on mount so they survive a page reload
+  useEffect(() => {
+    if (!sessionId) return;
+    const stored = sessionStorage.getItem(`chat_messages_${sessionId}`);
+    if (stored) {
+      try { setChatMessages(JSON.parse(stored)); } catch { /* ignore malformed */ }
+    }
+  }, [sessionId]);
+
+  // Persist chat messages to sessionStorage whenever they change
+  useEffect(() => {
+    if (!sessionId) return;
+    sessionStorage.setItem(`chat_messages_${sessionId}`, JSON.stringify(chatMessages));
+  }, [chatMessages, sessionId]);
   // Teacher's userId – fetched from GET /courses/{courseId} (no auth required)
   const [teacherUserId, setTeacherUserId] = useState<number | undefined>(undefined);
 
@@ -788,7 +803,6 @@ function SessionPageInner() {
   // and the student dropdown are populated with actual users instead of a placeholder.
   // Uses the existing endpoints: GET /courses/{id} (for the courseCode) →
   // GET /courses/{courseCode}/students (enrollments) → GET /users/{id} per student.
-  // TODO: replace with GET /sessions/{sessionId}/participants once that backend endpoint exists.
   useEffect(() => {
     if (!user?.token || !courseId) return;
     let cancelled = false;
