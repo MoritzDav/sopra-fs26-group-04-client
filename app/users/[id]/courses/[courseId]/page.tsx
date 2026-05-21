@@ -6,7 +6,6 @@ import { App, Button, Card, Input, Modal } from "antd";
 import { ArrowLeft, PlayCircle, BookOpen, Plus } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
-import { jsPDF } from "jspdf";
 
 interface Session {
   id: number;
@@ -115,23 +114,54 @@ export default function CoursePage() {
     router.push(`/session/${courseId}?sessionId=${sessionId}&title=${title}`);
   };
 
- //view PDF of teacher whiteboard in new tab
-  const handleViewPdf = async (sessionId: number) => {
-    try {
-      const data = await apiService.get<{ canvasSnapshot?: string }>(
-        `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
-        user?.token ?? undefined
-      );
-      if (!data.canvasSnapshot) { message.warning("No whiteboard content available for this session."); return; }
-      const img = new Image();
-      img.src = data.canvasSnapshot;
-      await new Promise(resolve => { img.onload = resolve; });
-      const pdf = new jsPDF({ orientation: img.width > img.height ? "landscape" : "portrait", unit: "px", format: [img.width, img.height] });
-      pdf.addImage(data.canvasSnapshot, "PNG", 0, 0, img.width, img.height);
-      const blob = pdf.output("blob");
+  // Download teacher's annotated notes ZIP (stored in sessionStorage) or fall back to raw uploaded files.
+  const handleDownloadTeacherNotes = async (sessionId: number) => {
+    const sessionTitle = sessions.find(s => s.id === sessionId)?.title ?? `Session_${sessionId}`;
+    const slug = sessionTitle.replace(/[^a-zA-Z0-9\-_]/g, "_");
+
+    // Try sessionStorage first (teacher notes with annotations).
+    const storedBase64 = sessionStorage.getItem(`teacher_notes_${sessionId}`);
+    if (storedBase64) {
+      const zipName = sessionStorage.getItem(`teacher_notes_${sessionId}_name`) ?? `${slug}-TeacherNotes.zip`;
+      const bytes = atob(storedBase64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      const blob = new Blob([arr], { type: "application/zip" });
       const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-    } catch { message.error("Could not load whiteboard PDF."); }
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = zipName;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // Fall back to raw session files from backend.
+    try {
+      const files = await apiService.get<Array<{ fileName: string; fileType: string; data: string }>>(
+        `/sessions/${sessionId}/files`,
+        user?.token ?? undefined,
+      );
+      if (!files || files.length === 0) {
+        message.warning("No files were uploaded in this session.");
+        return;
+      }
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      for (const f of files) {
+        const bytes = atob(f.data);
+        const arr = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        zip.file(f.fileName, arr);
+      }
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${slug}-SessionFiles.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { message.error("Could not download session files."); }
   };
 
   // Opens modal to name the new session
@@ -180,6 +210,7 @@ export default function CoursePage() {
             if (b64) {
               sessionStorage.setItem(`pdf_session_${created.sessionId}`, b64);
               sessionStorage.setItem(`pdf_session_${created.sessionId}_fresh`, Date.now().toString());
+              sessionStorage.setItem(`pdf_session_${created.sessionId}_name`, newSessionPdfFile.name);
             }
             resolve();
           };
@@ -292,11 +323,11 @@ export default function CoursePage() {
             <Card
               key={session.id}
               style={{
-                cursor: session.status !== "upcoming" ? "pointer" : "default",
+                cursor: session.status === "live" ? "pointer" : "default",
                 opacity: session.status === "ended" ? 0.7 : 1,
                 flexShrink: 0,
               }}
-              onClick={() => (session.status === "live" || (session.status === "ended" && isTeacher)) && handleJoinSession(session.id)}
+              onClick={() => session.status === "live" && handleJoinSession(session.id)}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -341,9 +372,9 @@ export default function CoursePage() {
                   {session.status === "ended" && (
                     <Button
                       icon={<BookOpen size={14} />}
-                      onClick={(e) => { e.stopPropagation(); handleViewPdf(session.id); }}
+                      onClick={(e) => { e.stopPropagation(); void handleDownloadTeacherNotes(session.id); }}
                     >
-                      View PDF
+                      Download Teacher&apos;s Notes
                     </Button>
                   )}
                   {session.status === "upcoming" && (

@@ -774,15 +774,23 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       isDrawing.current = false;
       lastPoint.current = null;
       takeSnapshot();
-      // #66: broadcast a stroke-end signal so other participants can take a
-      // history snapshot too. This gives the teacher one undo entry per stroke
-      // (regardless of who drew it) instead of per stroke-segment.
-      if (onStroke) onStroke({ action: "stroke-end" });
+      if (tool === "eraser") {
+        // After erasing, send a full resync snapshot instead of stroke-end. Remote viewers
+        // may have the stroke baked into bgCanvas (after undo/redo sent a snapshot), so
+        // individual erase strokes applied to drawCanvas have no visible effect there.
+        // A fresh snapshot guarantees the correct state regardless of which layer holds the stroke.
+        void flushAndResync();
+      } else {
+        // #66: broadcast a stroke-end signal so other participants can take a
+        // history snapshot too. This gives the teacher one undo entry per stroke
+        // (regardless of who drew it) instead of per stroke-segment.
+        if (onStroke) onStroke({ action: "stroke-end" });
+      }
     } else {
       isDrawing.current = false;
       lastPoint.current = null;
     }
-  }, [takeSnapshot, onStroke]);
+  }, [takeSnapshot, onStroke, tool, flushAndResync]);
 
   const clearCanvas = useCallback(() => {
     const canvas = canvasRef.current;

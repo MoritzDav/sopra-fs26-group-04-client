@@ -227,13 +227,14 @@ function SessionPageInner() {
           if (isFresh && user?.role === "TEACHER") {
             sessionStorage.removeItem(`pdf_session_${sessionId}_fresh`);
             const b64 = sessionStorage.getItem(`pdf_session_${sessionId}`);
+            const pdfName = sessionStorage.getItem(`pdf_session_${sessionId}_name`) ?? "session.pdf";
             if (b64) {
               try {
                 const bytes = atob(b64);
                 const arr = new Uint8Array(bytes.length);
                 for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
                 const blob = new Blob([arr], { type: "application/pdf" });
-                setSessionPdfFile(new File([blob], "session.pdf", { type: "application/pdf" }));
+                setSessionPdfFile(new File([blob], pdfName, { type: "application/pdf" }));
               } catch { /* ignore corrupt sessionStorage data */ }
             }
           } else {
@@ -257,7 +258,8 @@ function SessionPageInner() {
               // flushAndResync that loadPdf fires before annotations are restored.
               restoreAnnotationsOnReloadRef.current = true;
               suppressResyncRef.current = true;
-              setSessionPdfFile(new File([blob], "session.pdf", { type: "application/pdf" }));
+              const pdfName = sessionStorage.getItem(`pdf_session_${sessionId}_name`) ?? "session.pdf";
+              setSessionPdfFile(new File([blob], pdfName, { type: "application/pdf" }));
             } catch { /* ignore corrupt sessionStorage data */ }
           }
         } else {
@@ -499,9 +501,7 @@ function SessionPageInner() {
     if (currentName) {
       const snap = boardRef.current?.captureAnnotations();
       if (snap?.offscreen) {
-        const pageSnapshots = !isTeacher
-          ? await (boardRef.current?.getAllPageSnapshots() ?? Promise.resolve([]))
-          : undefined;
+        const pageSnapshots = await (boardRef.current?.getAllPageSnapshots() ?? Promise.resolve([]));
         annotationsMap.current.set(currentName, { ...snap, pageSnapshots });
       }
     }
@@ -1140,13 +1140,63 @@ function SessionPageInner() {
 
   //end session as a teacher
   const handleEndSession = async () => {
+    // Capture all annotated page composites before ending (canvas is still mounted here).
+    const { default: JSZip } = await import("jszip");
+    const zip = new JSZip();
+    const slug = sessionTitle.replace(/[^a-zA-Z0-9\-_]/g, "_");
+
+    const pagesToPdfBlob = async (pages: string[]): Promise<Blob | null> => {
+      if (pages.length === 0) return null;
+      const { w, h } = await new Promise<{ w: number; h: number }>(resolve => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth || 1190, h: img.naturalHeight || 1684 });
+        img.onerror = () => resolve({ w: 1190, h: 1684 });
+        img.src = pages[0];
+      });
+      const orient = w >= h ? "landscape" : "portrait";
+      const pdf = new jsPDF({ orientation: orient, unit: "px", format: [w, h] });
+      for (let i = 0; i < pages.length; i++) {
+        if (i > 0) pdf.addPage([w, h], orient);
+        pdf.addImage(pages[i], "JPEG", 0, 0, w, h);
+      }
+      return pdf.output("blob");
+    };
+
+    // 1. Currently active PDF — all pages with teacher strokes.
+    const currentPages = await (teacherEditBoardRef.current?.getAllPageSnapshots() ?? Promise.resolve([]));
+    const currentPdfName = sessionPdfFileRef.current?.name?.replace(/\.pdf$/i, "") ?? "whiteboard";
+    const currentBlob = await pagesToPdfBlob(currentPages);
+    if (currentBlob) zip.file(`${currentPdfName}.pdf`, currentBlob);
+
+    // 2. Previously visited PDFs — use full composites captured on switch.
+    for (const [fileName, snap] of pdfAnnotationsRef.current.entries()) {
+      const baseName = fileName.replace(/\.pdf$/i, "");
+      if (baseName === currentPdfName) continue;
+      if (snap.pageSnapshots && snap.pageSnapshots.length > 0) {
+        const blob = await pagesToPdfBlob(snap.pageSnapshots);
+        if (blob) zip.file(`${baseName}.pdf`, blob);
+      }
+    }
+
+    if (Object.keys(zip.files).length > 0 && sessionId) {
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.readAsDataURL(zipBlob);
+      });
+      try {
+        sessionStorage.setItem(`teacher_notes_${sessionId}`, base64);
+        sessionStorage.setItem(`teacher_notes_${sessionId}_name`, `${slug}-TeacherNotes.zip`);
+      } catch { /* quota exceeded, skip */ }
+    }
+
     try {
       await apiService.put(
         `/courses/${courseId}/sessions/${sessionId}/end`,
         {},
         user?.token ?? undefined
       );
-      console.log("Session ended successfully");
     } catch (err) { console.error("Failed to end session:", err); }
     router.back();
   };
@@ -1508,7 +1558,7 @@ function SessionPageInner() {
               sessionFiles.map(f => (
                 <div
                   key={f.id}
-                  onClick={() => loadFileOnWhiteboard(f)}
+                  onClick={() => { void loadFileOnWhiteboard(f); }}
                   style={{
                     display: "flex", alignItems: "center", gap: "10px",
                     padding: "10px 12px", borderRadius: "8px",
@@ -2117,7 +2167,7 @@ function SessionPageInner() {
             sessionFiles.map(f => (
               <div
                 key={f.id}
-                onClick={() => loadFileOnWhiteboard(f)}
+                onClick={() => { void loadFileOnWhiteboard(f); }}
                 style={{
                   display: "flex", alignItems: "center", gap: "10px",
                   padding: "10px 12px", borderRadius: "8px",
@@ -2193,7 +2243,7 @@ function SessionPageInner() {
                 {studentLocalFiles.map((f, i) => (
                   <div
                     key={i}
-                    onClick={() => loadStudentLocalFile(f)}
+                    onClick={() => { void loadStudentLocalFile(f); }}
                     style={{
                       display: "flex", alignItems: "center", gap: "10px",
                       padding: "8px 10px", borderRadius: "8px",
