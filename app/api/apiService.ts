@@ -30,8 +30,18 @@ export class ApiService {
       let errorDetail = res.statusText;
       try {
         const errorInfo = await res.json();
+        // Spring returns either { message: "…" } (custom ResponseStatusException)
+        // or a ProblemDetail { detail, title, status, instance } when Bean
+        // Validation (@Valid/@NotBlank) rejects a request. Look at all the
+        // shapes so we never end up dumping the raw JSON to the user.
         if (errorInfo?.message) {
           errorDetail = errorInfo.message;
+        } else if (errorInfo?.detail) {
+          errorDetail = errorInfo.detail;
+        } else if (errorInfo?.title) {
+          errorDetail = errorInfo.title;
+        } else if (errorInfo?.error) {
+          errorDetail = errorInfo.error;
         } else {
           errorDetail = JSON.stringify(errorInfo);
         }

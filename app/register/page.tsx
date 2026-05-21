@@ -7,6 +7,7 @@ import { Button, Form, Input } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
 import { GraduationCap, Presentation } from "lucide-react";
 import { Suspense } from "react";
+import { parseApiError, toFriendlyError } from "@/utils/errors";
 
 
 // Optionally, you can import a CSS module or file for additional styling:
@@ -57,16 +58,51 @@ const Register: React.FC = () => {
 
     } catch (error) {
           if (error instanceof Error) {
-            if (error.message.includes("409") || error.message.includes("400")) {
-              form.setFields([
-                {
-                  name: "username",
-                  errors: ["Username already exists!"],
-                },
-              ]);
-            } else {
-              alert(`Something went wrong during the registration:\n${error.message}`);
+            // Parse the backend response (HTTP status + detail) so we can
+            // route validation errors to the correct field and show a clean
+            // "Type — short friendly line" instead of a convoluted blob.
+            const { status, detail } = parseApiError(error);
+            const lowDetail = detail.toLowerCase();
+
+            // 409 → username already taken
+            if (status === "409" && /username/.test(lowDetail)) {
+              form.setFields([{
+                name: "username",
+                errors: ["Username already taken — please pick a different one."],
+              }]);
+              return;
             }
+            // 400 validation errors — attach to the right field with a friendly line
+            if (status === "400" && /password/.test(lowDetail)) {
+              form.setFields([{
+                name: "password",
+                errors: [`Invalid password — ${detail}`],
+              }]);
+              return;
+            }
+            if (status === "400" && /username/.test(lowDetail)) {
+              form.setFields([{
+                name: "username",
+                errors: [`Invalid username — ${detail}`],
+              }]);
+              return;
+            }
+            if (status === "400" && /first name/.test(lowDetail)) {
+              form.setFields([{
+                name: "firstName",
+                errors: [`Invalid first name — ${detail}`],
+              }]);
+              return;
+            }
+            if (status === "400" && /last name/.test(lowDetail)) {
+              form.setFields([{
+                name: "lastName",
+                errors: [`Invalid last name — ${detail}`],
+              }]);
+              return;
+            }
+            // Anything else — show the clean friendly fallback in an alert
+            alert(toFriendlyError(error));
           } else {
             console.error("An unknown error occurred during registration.");
           }
@@ -96,7 +132,9 @@ const Register: React.FC = () => {
         <Form.Item
             name="username"
             label="Username"
-            rules={[{ required: true, message: "Please input your username!" }]}
+            // whitespace: true catches strings that are only spaces — otherwise the
+            // backend bounces with Spring's generic "Invalid request content."
+            rules={[{ required: true, whitespace: true, message: "Please input your username!" }]}
         >
           <Input placeholder="Choose a unique username" />
         </Form.Item>
@@ -104,21 +142,21 @@ const Register: React.FC = () => {
         <Form.Item
            name="firstName"
            label="First Name"
-           rules={[{ required: true, message: "Please input your name!" }]}
+           rules={[{ required: true, whitespace: true, message: "Please input your first name!" }]}
            >
            <Input placeholder="Enter first name" />
         </Form.Item>
         <Form.Item
             name="lastName"
             label="Last Name"
-            rules={[{ required: true, message: "Please input your last name!" }]}
+            rules={[{ required: true, whitespace: true, message: "Please input your last name!" }]}
         >
            <Input placeholder ="Enter last name" />
         </Form.Item>
         <Form.Item
           name="password"
           label="Password"
-          rules={[{ required: true, message: "Please input your password!" }]}
+          rules={[{ required: true, whitespace: true, message: "Please choose a password (no whitespace-only)." }]}
         >
           <Input.Password placeholder="Enter password" />
         </Form.Item>
