@@ -6,6 +6,7 @@ import { App, Button, Card, Input, Modal } from "antd";
 import { ArrowLeft, PlayCircle, BookOpen, Plus } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
+import { retrieveTeacherNotes } from "@/utils/teacherNotesStorage";
 
 interface Session {
   id: number;
@@ -114,27 +115,24 @@ export default function CoursePage() {
     router.push(`/session/${courseId}?sessionId=${sessionId}&title=${title}`);
   };
 
-  // Download teacher's annotated notes ZIP (stored in sessionStorage) or fall back to raw uploaded files.
+  // Download teacher's annotated notes ZIP (stored in IndexedDB) or fall back to raw uploaded files.
   const handleDownloadTeacherNotes = async (sessionId: number) => {
     const sessionTitle = sessions.find(s => s.id === sessionId)?.title ?? `Session_${sessionId}`;
     const slug = sessionTitle.replace(/[^a-zA-Z0-9\-_]/g, "_");
 
-    // Try sessionStorage first (teacher notes with annotations).
-    const storedBase64 = sessionStorage.getItem(`teacher_notes_${sessionId}`);
-    if (storedBase64) {
-      const zipName = sessionStorage.getItem(`teacher_notes_${sessionId}_name`) ?? `${slug}-TeacherNotes.zip`;
-      const bytes = atob(storedBase64);
-      const arr = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      const blob = new Blob([arr], { type: "application/zip" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = zipName;
-      a.click();
-      URL.revokeObjectURL(url);
-      return;
-    }
+    // Try IndexedDB first — annotations ZIP is stored there after session ends.
+    try {
+      const stored = await retrieveTeacherNotes(sessionId);
+      if (stored) {
+        const url = URL.createObjectURL(stored.blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = stored.name;
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+    } catch { /* fall through to backend */ }
 
     // Fall back to raw session files from backend.
     try {

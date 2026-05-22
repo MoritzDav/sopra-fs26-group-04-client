@@ -1394,7 +1394,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
             <>
               {!allowPdf && <Divider />}
               <button
-                onClick={() => switchToPage(currentPage - 1)}
+                onClick={() => { void switchToPage(currentPage - 1); }}
                 disabled={pageNavLocked || currentPage <= 1}
                 title={pageNavLocked ? "Page navigation is locked while multi-mode is active" : "Previous page"}
                 style={iconBtnStyle(false, pageNavLocked || currentPage <= 1)}
@@ -1408,7 +1408,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
                 {currentPage} / {totalPages}
               </span>
               <button
-                onClick={() => switchToPage(currentPage + 1)}
+                onClick={() => { void switchToPage(currentPage + 1); }}
                 disabled={pageNavLocked || currentPage >= totalPages}
                 title={pageNavLocked ? "Page navigation is locked while multi-mode is active" : "Next page"}
                 style={iconBtnStyle(false, pageNavLocked || currentPage >= totalPages)}
