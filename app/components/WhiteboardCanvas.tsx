@@ -653,7 +653,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const startDrawing = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (tool === "text") {
       closeCurrentEditor();
-      const id = Math.random().toString(36).slice(2);
+      const id = crypto.randomUUID();
       setTextElements((prev) => {
         const next = [...prev, { id, x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY, html: "", color, fontSize }];
         textElemsRef.current = next;
