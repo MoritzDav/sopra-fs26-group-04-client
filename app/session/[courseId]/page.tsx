@@ -9,7 +9,7 @@ import { useApi } from "@/hooks/useApi";
 import { getWhiteboardWebSocketUrl, getSessionWebSocketUrl, getWebSocketDomain } from "@/utils/websocket";
 import { getApiDomain } from "@/utils/domain";
 import { jsPDF } from "jspdf";
-import { storeTeacherNotes, storeSessionPdf, retrieveSessionPdf, deleteSessionPdf } from "@/utils/teacherNotesStorage";
+import { storeTeacherNotes, storeSessionPdf, retrieveSessionPdf, deleteSessionPdf, storeStudentLocalFiles, retrieveStudentLocalFiles } from "@/utils/teacherNotesStorage";
 
 // Incoming chat message shape from backend ChatMessageGetDTO
 interface ChatMessage {
@@ -318,6 +318,20 @@ function SessionPageInner() {
       .then(files => setSessionFiles(files))
       .catch(() => {});
   }, [sessionId, user?.token, user?.role, apiService]);
+
+  // Restore student local files from IndexedDB on mount
+  useEffect(() => {
+    if (!sessionId || !user?.id || user.role === "TEACHER") return;
+    retrieveStudentLocalFiles(sessionId, user.id)
+      .then(files => { if (files.length > 0) setStudentLocalFiles(files); })
+      .catch(() => {});
+  }, [sessionId, user?.id, user?.role]);
+
+  // Persist student local files to IndexedDB whenever the list changes
+  useEffect(() => {
+    if (!sessionId || !user?.id || user.role === "TEACHER") return;
+    void storeStudentLocalFiles(sessionId, user.id, studentLocalFiles);
+  }, [studentLocalFiles, sessionId, user?.id, user?.role]);
 
   // Save PDF to sessionStorage when loaded, upload to backend if not already there,
   // and restore any pending annotations from a previous PDF switch.
