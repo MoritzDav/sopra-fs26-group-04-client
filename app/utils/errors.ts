@@ -19,7 +19,7 @@ export function parseApiError(err: Error): ParsedApiError {
   // Match "(<status>: <detail>)" at the end of the message. We don't use the
   // /s flag (requires es2018+) — instead, capture any char including newlines
   // with [\s\S].
-  const match = err.message.match(/\((\d{3}):\s*([\s\S]*)\)\s*$/);
+  const match = err.message.match(/\((\d{3}):\s*([\s\S]{0,2000})\)\s*$/);
   let detail = match?.[2]?.trim() ?? "";
   // Safety net: if the apiService still dumped a ProblemDetail-looking JSON
   // (older builds, or a response shape we didn't recognise), pull the

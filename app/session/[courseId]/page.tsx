@@ -1202,6 +1202,80 @@ function SessionPageInner() {
   };
 
 
+  // Student: leave session voluntarily.
+  const handleLeaveSession = useCallback(async () => {
+    try {
+      await apiService.delete(`/courses/${courseId}/sessions/${sessionId}/leave`, user?.token ?? undefined);
+    } catch { /* non-critical */ }
+    await captureBeforeEnd();
+    setLeaveReason("self");
+    setSessionEnded(true);
+  }, [apiService, courseId, sessionId, user?.token, captureBeforeEnd]);
+
+  // Student: download annotated notes as ZIP after session ends.
+  const handleSaveStudentNotes = useCallback(async () => {
+    const { default: JSZip } = await import("jszip");
+    const zip = new JSZip();
+    const slug = sessionTitle.replace(/[^a-zA-Z0-9\-_]/g, "_");
+
+    const pagesToPdfBlob = async (pages: string[]): Promise<Blob | null> => {
+      if (pages.length === 0) return null;
+      const { w, h } = await new Promise<{ w: number; h: number }>(resolve => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth || 1190, h: img.naturalHeight || 1684 });
+        img.onerror = () => resolve({ w: 1190, h: 1684 });
+        img.src = pages[0];
+      });
+      const orient = w >= h ? "landscape" : "portrait";
+      const pdf = new jsPDF({ orientation: orient, unit: "px", format: [w, h] });
+      for (let i = 0; i < pages.length; i++) {
+        if (i > 0) pdf.addPage([w, h], orient);
+        pdf.addImage(pages[i], "JPEG", 0, 0, w, h);
+      }
+      return pdf.output("blob");
+    };
+
+    const currentPages = preEndSnapshotsRef.current;
+    const currentPdfName = studentPdfFileRef.current?.name?.replace(/\.pdf$/i, "") ?? "notes";
+    const currentBlob = await pagesToPdfBlob(currentPages);
+    if (currentBlob) zip.file(`${currentPdfName}.pdf`, currentBlob);
+
+    for (const [fileName, snap] of preEndAnnotationsRef.current.entries()) {
+      const baseName = fileName.replace(/\.pdf$/i, "");
+      if (baseName === currentPdfName) continue;
+      if (snap.pageSnapshots && snap.pageSnapshots.length > 0) {
+        const blob = await pagesToPdfBlob(snap.pageSnapshots);
+        if (blob) zip.file(`${baseName}.pdf`, blob);
+      } else if (snap.offscreen) {
+        const dpr = window.devicePixelRatio || 1;
+        const w = snap.offscreen.width / dpr;
+        const h = snap.offscreen.height / dpr;
+        const off = document.createElement("canvas");
+        off.width = snap.offscreen.width;
+        off.height = snap.offscreen.height;
+        const ctx = off.getContext("2d");
+        if (ctx) {
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(0, 0, off.width, off.height);
+          ctx.drawImage(snap.offscreen, 0, 0);
+        }
+        const orient = w >= h ? "landscape" : "portrait";
+        const pdf = new jsPDF({ orientation: orient, unit: "px", format: [w, h] });
+        pdf.addImage(off.toDataURL("image/jpeg", 0.88), "JPEG", 0, 0, w, h);
+        zip.file(`${baseName}.pdf`, pdf.output("blob"));
+      }
+    }
+
+    if (Object.keys(zip.files).length === 0) return;
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug}-MyNotes.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [sessionTitle, preEndSnapshotsRef, preEndAnnotationsRef, studentPdfFileRef]);
+
   // Students: poll every 5s to detect when teacher ends the session (if live then websocket and backend change)
   useEffect(() => {
     if (user?.role === "TEACHER" || !sessionId || !courseId) return;
@@ -1782,73 +1856,7 @@ function SessionPageInner() {
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
             <button
-              onClick={async () => {
-                const { default: JSZip } = await import("jszip");
-                const zip = new JSZip();
-                const slug = sessionTitle.replace(/[^a-zA-Z0-9\-_]/g, "_");
-
-                // Build a jsPDF blob from an array of JPEG data URLs (one per page).
-                const pagesToPdfBlob = async (pages: string[]): Promise<Blob | null> => {
-                  if (pages.length === 0) return null;
-                  const { w, h } = await new Promise<{ w: number; h: number }>(resolve => {
-                    const img = new Image();
-                    img.onload = () => resolve({ w: img.naturalWidth || 1190, h: img.naturalHeight || 1684 });
-                    img.onerror = () => resolve({ w: 1190, h: 1684 });
-                    img.src = pages[0];
-                  });
-                  const orient = w >= h ? "landscape" : "portrait";
-                  const pdf = new jsPDF({ orientation: orient, unit: "px", format: [w, h] });
-                  for (let i = 0; i < pages.length; i++) {
-                    if (i > 0) pdf.addPage([w, h], orient);
-                    pdf.addImage(pages[i], "JPEG", 0, 0, w, h);
-                  }
-                  return pdf.output("blob");
-                };
-
-                // 1. Current PDF — all pages captured before the canvas unmounted.
-                const currentPages = preEndSnapshotsRef.current;
-                const currentPdfName = studentPdfFileRef.current?.name?.replace(/\.pdf$/i, "") ?? "notes";
-                const currentBlob = await pagesToPdfBlob(currentPages);
-                if (currentBlob) zip.file(`${currentPdfName}.pdf`, currentBlob);
-
-                // 2. Previously visited PDFs — use full composites (PDF bg + strokes) captured on switch.
-                //    Falls back to annotation-layer-on-white if composites weren't captured.
-                for (const [fileName, snap] of preEndAnnotationsRef.current.entries()) {
-                  const baseName = fileName.replace(/\.pdf$/i, "");
-                  if (baseName === currentPdfName) continue;
-                  if (snap.pageSnapshots && snap.pageSnapshots.length > 0) {
-                    const blob = await pagesToPdfBlob(snap.pageSnapshots);
-                    if (blob) zip.file(`${baseName}.pdf`, blob);
-                  } else if (snap.offscreen) {
-                    const dpr = window.devicePixelRatio || 1;
-                    const w = snap.offscreen.width / dpr;
-                    const h = snap.offscreen.height / dpr;
-                    const off = document.createElement("canvas");
-                    off.width = snap.offscreen.width;
-                    off.height = snap.offscreen.height;
-                    const ctx = off.getContext("2d");
-                    if (ctx) {
-                      ctx.fillStyle = "#FFFFFF";
-                      ctx.fillRect(0, 0, off.width, off.height);
-                      ctx.drawImage(snap.offscreen, 0, 0);
-                    }
-                    const orient = w >= h ? "landscape" : "portrait";
-                    const pdf = new jsPDF({ orientation: orient, unit: "px", format: [w, h] });
-                    pdf.addImage(off.toDataURL("image/jpeg", 0.88), "JPEG", 0, 0, w, h);
-                    zip.file(`${baseName}.pdf`, pdf.output("blob"));
-                  }
-                }
-
-                if (Object.keys(zip.files).length === 0) return;
-
-                const zipBlob = await zip.generateAsync({ type: "blob" });
-                const url = URL.createObjectURL(zipBlob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${slug}-MyNotes.zip`;
-                a.click();
-                URL.revokeObjectURL(url);
-              }}
+              onClick={() => { void handleSaveStudentNotes(); }}
               style={{
                 background: "rgba(91,108,255,0.08)", border: "1px solid rgba(91,108,255,0.2)",
                 color: "#5B6CFF", padding: "11px 20px", borderRadius: "10px",
@@ -1888,14 +1896,7 @@ function SessionPageInner() {
         zIndex: 10,
       }}>
         <button
-          onClick={async () => {
-            try {
-              await apiService.delete(`/courses/${courseId}/sessions/${sessionId}/leave`, user?.token ?? undefined);
-            } catch { /* non-critical — still show leave screen even if backend call fails */ }
-            await captureBeforeEnd();
-            setLeaveReason("self");
-            setSessionEnded(true);
-          }}
+          onClick={() => { void handleLeaveSession(); }}
           style={{
             display: "flex",
             alignItems: "center",
