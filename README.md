@@ -179,6 +179,14 @@ The following features would be valuable additions for new contributors:
 6. **Advanced Brownie Points System:** Students get Brownie Points automatically by being present in a session. They level up with a certain amount of Brownie Points, which is visible in their profile.
 ---
 
+## Design Decisions
+
+ **User-story refinement: #12 (teacher views student whiteboard)**
+
+The original user story called for every selected student's whiteboard to be auto-displayed, but we dropped the "automatic" part: the teacher can't know what's on a student's board before opening it, so auto-display hurts the users rahter than benefitting thme, and broadcasting it without intent risks exposing personal notes the student never meant to share. If a student does want to present their answer to the class, they can already do so through **Multi-Mode** — keeping every disclosure a conscious choice on both sides.
+
+---
+
 ## Authors and Acknowledgment
 
 | Name                | GitHub                                                 | Matrikelnumber |
