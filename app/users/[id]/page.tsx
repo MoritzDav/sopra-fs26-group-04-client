@@ -60,11 +60,20 @@ const Profile: React.FC = () => {
     };
 
     const saveField = async (field: string) => {
+        const val = editValues[field as keyof typeof editValues];
+        if (field === "username" && /\s/.test(val)) {
+            setError("Username cannot contain spaces.");
+            return;
+        }
+        if (val.length > 20) {
+            setError(`${field === "firstName" ? "First name" : field === "lastName" ? "Last name" : "Username"} must be 20 characters or fewer.`);
+            return;
+        }
         try {
             await apiService.put(`/users/${id}`, {
-                [field]: editValues[field as keyof typeof editValues],
+                [field]: val,
             }, user?.token ?? undefined);
-            setUser({ ...user!, [field]: editValues[field as keyof typeof editValues] });
+            setUser({ ...user!, [field]: val });
             setSuccess(`${field} updated successfully!`);
             setEditingField(null);
         } catch (err) {
@@ -106,9 +115,13 @@ const Profile: React.FC = () => {
                             <input
                                 className="profile-edit-input"
                                 value={editValues[field as keyof typeof editValues]}
-                                onChange={(e) =>
-                                    setEditValues({ ...editValues, [field]: e.target.value })
-                                }
+                                maxLength={20}
+                                onChange={(e) => {
+                                    const val = field === "username"
+                                        ? e.target.value.replace(/\s/g, "")
+                                        : e.target.value;
+                                    setEditValues({ ...editValues, [field]: val });
+                                }}
                             />
                             <button className="profile-icon-btn save" onClick={() => saveField(field)}>
                                 <Check size={16} />

@@ -298,6 +298,8 @@ function TeacherDashboardInner() {
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
               placeholder="Title"
+              maxLength={50}
+              showCount
               style={{ marginBottom: 8 }}
             />
             <Input.TextArea
@@ -305,12 +307,18 @@ function TeacherDashboardInner() {
               onChange={(e) => setEditDescription(e.target.value)}
               placeholder="Description"
               rows={4}
+              maxLength={500}
+              showCount
               style={{ marginBottom: 8 }}
             />
             <Upload
               accept="image/*"
               showUploadList={false}
               beforeUpload={(file) => {
+                if (file.size > 5 * 1024 * 1024) {
+                  message.error("Image must be smaller than 5 MB.");
+                  return false;
+                }
                 const reader = new FileReader()
                 reader.onload = (ev) => setEditPictureURL(ev.target?.result as string)
                 reader.readAsDataURL(file)
@@ -375,6 +383,8 @@ function TeacherDashboardInner() {
               value={createTitle}
               onChange={(e) => setCreateTitle(e.target.value)}
               placeholder="Title"
+              maxLength={50}
+              showCount
               style={{ marginBottom: 8 }}
             />
             <Input.TextArea
@@ -382,12 +392,18 @@ function TeacherDashboardInner() {
               onChange={(e) => setCreateDescription(e.target.value)}
               placeholder="Description"
               rows={4}
+              maxLength={500}
+              showCount
               style={{ marginBottom: 8 }}
             />
             <Upload
               accept="image/*"
               showUploadList={false}
               beforeUpload={(file) => {
+                if (file.size > 5 * 1024 * 1024) {
+                  message.error("Image must be smaller than 5 MB.");
+                  return false;
+                }
                 const reader = new FileReader()
                 reader.onload = (ev) => setCreatePictureURL(ev.target?.result as string)
                 reader.readAsDataURL(file)
