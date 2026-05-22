@@ -9,7 +9,7 @@ import { useApi } from "@/hooks/useApi";
 import { getWhiteboardWebSocketUrl, getSessionWebSocketUrl, getWebSocketDomain } from "@/utils/websocket";
 import { getApiDomain } from "@/utils/domain";
 import { jsPDF } from "jspdf";
-import { storeTeacherNotes } from "@/utils/teacherNotesStorage";
+import { storeTeacherNotes, storeSessionPdf, retrieveSessionPdf, deleteSessionPdf } from "@/utils/teacherNotesStorage";
 
 // Incoming chat message shape from backend ChatMessageGetDTO
 interface ChatMessage {
@@ -218,51 +218,40 @@ function SessionPageInner() {
       `/courses/${courseId}/sessions/${sessionId}/whiteboard`,
       user?.token ?? undefined,
     )
-      .then(data => {
+      .then(async data => {
         if (!data.canvasSnapshot) {
-          // No backend snapshot yet. Check if the teacher just created this session and wrote
-          // a PDF to sessionStorage moments ago (fresh marker within 30 s). If so, restore it
+          // No backend snapshot yet. Check if the teacher just created this session and stored
+          // a PDF in IndexedDB moments ago (fresh marker within 30 s). If so, restore it
           // rather than clearing — it's not a stale entry from a previous server run.
           const freshMarker = sessionStorage.getItem(`pdf_session_${sessionId}_fresh`);
           const isFresh = freshMarker && (Date.now() - parseInt(freshMarker)) < 30000;
           if (isFresh && user?.role === "TEACHER") {
             sessionStorage.removeItem(`pdf_session_${sessionId}_fresh`);
-            const b64 = sessionStorage.getItem(`pdf_session_${sessionId}`);
-            const pdfName = sessionStorage.getItem(`pdf_session_${sessionId}_name`) ?? "session.pdf";
-            if (b64) {
-              try {
-                const bytes = atob(b64);
-                const arr = new Uint8Array(bytes.length);
-                for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-                const blob = new Blob([arr], { type: "application/pdf" });
-                setSessionPdfFile(new File([blob], pdfName, { type: "application/pdf" }));
-              } catch { /* ignore corrupt sessionStorage data */ }
-            }
+            try {
+              const file = await retrieveSessionPdf(sessionId);
+              if (file) setSessionPdfFile(file);
+            } catch { /* ignore */ }
           } else {
             // Stale entry from a previous server run — clear it.
-            sessionStorage.removeItem(`pdf_session_${sessionId}`);
             sessionStorage.removeItem(`pdf_session_${sessionId}_fresh`);
+            sessionStorage.removeItem(`pdf_session_${sessionId}_name`);
+            void deleteSessionPdf(sessionId);
           }
           return;
         }
         if (user?.role === "TEACHER") {
           setSavedSnapshot(data.canvasSnapshot);
           // Restore PDF only after confirming the backend has a prior snapshot for this session.
-          const b64 = sessionStorage.getItem(`pdf_session_${sessionId}`);
-          if (b64) {
-            try {
-              const bytes = atob(b64);
-              const arr = new Uint8Array(bytes.length);
-              for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-              const blob = new Blob([arr], { type: "application/pdf" });
+          try {
+            const file = await retrieveSessionPdf(sessionId);
+            if (file) {
               // Signal handlePdfLoaded to restore annotations and suppress the spurious empty
               // flushAndResync that loadPdf fires before annotations are restored.
               restoreAnnotationsOnReloadRef.current = true;
               suppressResyncRef.current = true;
-              const pdfName = sessionStorage.getItem(`pdf_session_${sessionId}_name`) ?? "session.pdf";
-              setSessionPdfFile(new File([blob], pdfName, { type: "application/pdf" }));
-            } catch { /* ignore corrupt sessionStorage data */ }
-          }
+              setSessionPdfFile(file);
+            }
+          } catch { /* ignore */ }
         } else {
           setTeacherSnapshot(data.canvasSnapshot);
         }
@@ -382,15 +371,10 @@ function SessionPageInner() {
         img.src = annDataURL;
       }
     }
-    // --- backend / sessionStorage logic below requires a valid session ---
+    // --- backend / IndexedDB logic below requires a valid session ---
     if (!sessionId) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const b64 = result.split(",")[1];
-      if (b64) sessionStorage.setItem(`pdf_session_${sessionId}`, b64);
-    };
-    reader.readAsDataURL(file);
+    // Persist the PDF in IndexedDB so page reloads can restore it.
+    void storeSessionPdf(Number(sessionId), file);
     // Skip backend upload if triggered by setSessionPdfFile (Files tab or panel click)
     if (skipNextPdfUploadRef.current) {
       skipNextPdfUploadRef.current = false;

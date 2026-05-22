@@ -6,7 +6,7 @@ import { App, Button, Card, Input, Modal } from "antd";
 import { ArrowLeft, PlayCircle, BookOpen, Plus } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { useUser } from "@/contexts/UserContext";
-import { retrieveTeacherNotes } from "@/utils/teacherNotesStorage";
+import { retrieveTeacherNotes, storeSessionPdf } from "@/utils/teacherNotesStorage";
 
 interface Session {
   id: number;
@@ -197,24 +197,14 @@ export default function CoursePage() {
         ...prev,
       ]);
       setCreateModalOpen(false);
-      // Persist the PDF so it auto-loads when the teacher enters the session.
-      // Must await before router.push() — FileReader.onload is async.
+      // Persist the PDF in IndexedDB so it auto-loads when the teacher enters the session.
+      // IndexedDB stores the raw Blob — no base64 conversion, no 5 MB sessionStorage limit.
       if (newSessionPdfFile) {
-        await new Promise<void>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            const b64 = result.split(",")[1];
-            if (b64) {
-              sessionStorage.setItem(`pdf_session_${created.sessionId}`, b64);
-              sessionStorage.setItem(`pdf_session_${created.sessionId}_fresh`, Date.now().toString());
-              sessionStorage.setItem(`pdf_session_${created.sessionId}_name`, newSessionPdfFile.name);
-            }
-            resolve();
-          };
-          reader.onerror = () => resolve();
-          reader.readAsDataURL(newSessionPdfFile);
-        });
+        try {
+          await storeSessionPdf(created.sessionId, newSessionPdfFile);
+          sessionStorage.setItem(`pdf_session_${created.sessionId}_fresh`, Date.now().toString());
+          sessionStorage.setItem(`pdf_session_${created.sessionId}_name`, newSessionPdfFile.name);
+        } catch { /* non-critical — session starts without PDF */ }
       }
       router.push(`/session/${courseId}?sessionId=${created.sessionId}&title=${encodeURIComponent(title)}`);    } catch (err) {
       if (err instanceof Error) {
