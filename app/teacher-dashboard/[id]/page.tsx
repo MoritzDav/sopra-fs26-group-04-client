@@ -160,8 +160,13 @@ function TeacherDashboardInner() {
       okButtonProps: { danger: true },
       cancelText: "Cancel",
       onOk: async () => {
-        await apiService.delete(`/courses/${courseId}`, token);
-        setCourses(courses.filter(c => c.courseId !== courseId));
+        try {
+          await apiService.delete(`/courses/${courseId}`, token);
+          setCourses(prev => prev.filter(c => c.courseId !== courseId));
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : "Failed to delete course.");
+          throw err;
+        }
       }
     });
   };
@@ -262,8 +267,8 @@ function TeacherDashboardInner() {
 
               {/* Actions */}
               <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
-                <Button icon={<EditOutlined />} size="small" onClick={(e) => { e.stopPropagation(); handleEdit(e, course.courseId); }}/>
-                <Button icon={<ShareAltOutlined />} size="small" onClick={(e) => handleShare(e, course.courseId)}/>
+                <Button icon={<EditOutlined />} size="small" onClick={(e) => { e.stopPropagation(); void handleEdit(e, course.courseId); }}/>
+                <Button icon={<ShareAltOutlined />} size="small" onClick={(e) => { void handleShare(e, course.courseId); }}/>
                 <Button icon={<DeleteOutlined />} size="small" danger onClick={(e) => handleDelete(e, course.courseId)} />
               </div>
             </Card>
