@@ -8,7 +8,7 @@
 // SSR (server side rendering) has to be disabled.
 // Read more here: https://nextjs.org/docs/pages/building-your-application/rendering/server-side-rendering
 
-import React from "react";
+import React, { useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useUser } from "@/contexts/UserContext";
 import { User, Pencil, X, Check, Lock, ArrowLeft } from "lucide-react";
@@ -21,7 +21,14 @@ const Profile: React.FC = () => {
     const params = useParams();
     const id = params.id;
     const apiService = useApi();
-    const { user, setUser, clearUser } = useUser();
+    const { user, isLoading, setUser, clearUser } = useUser();
+
+    useEffect(() => {
+        if (isLoading) return;
+        if (!user || !user.token) {
+            router.push("/login");
+        }
+    }, [user, isLoading, router]);
 
     const firstName = user?.firstName || "";
     const lastName = user?.lastName || "";
