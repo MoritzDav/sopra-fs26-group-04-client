@@ -132,26 +132,34 @@ const Register: React.FC = () => {
         <Form.Item
             name="username"
             label="Username"
-            // whitespace: true catches strings that are only spaces — otherwise the
-            // backend bounces with Spring's generic "Invalid request content."
-            rules={[{ required: true, whitespace: true, message: "Please input your username!" }]}
+            rules={[
+              { required: true, message: "Please input your username!" },
+              { max: 20, message: "Username must be 20 characters or fewer." },
+              { pattern: /^\S+$/, message: "Username cannot contain spaces." },
+            ]}
         >
-          <Input placeholder="Choose a unique username" />
+          <Input placeholder="Choose a unique username" maxLength={20} />
         </Form.Item>
 
         <Form.Item
            name="firstName"
            label="First Name"
-           rules={[{ required: true, whitespace: true, message: "Please input your first name!" }]}
+           rules={[
+             { required: true, whitespace: true, message: "Please input your first name!" },
+             { max: 20, message: "First name must be 20 characters or fewer." },
+           ]}
            >
-           <Input placeholder="Enter first name" />
+           <Input placeholder="Enter first name" maxLength={20} />
         </Form.Item>
         <Form.Item
             name="lastName"
             label="Last Name"
-            rules={[{ required: true, whitespace: true, message: "Please input your last name!" }]}
+            rules={[
+              { required: true, whitespace: true, message: "Please input your last name!" },
+              { max: 20, message: "Last name must be 20 characters or fewer." },
+            ]}
         >
-           <Input placeholder ="Enter last name" />
+           <Input placeholder="Enter last name" maxLength={20} />
         </Form.Item>
         <Form.Item
           name="password"

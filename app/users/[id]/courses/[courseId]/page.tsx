@@ -489,6 +489,8 @@ export default function CoursePage() {
           value={newSessionTitle}
           onChange={(e) => setNewSessionTitle(e.target.value)}
           placeholder="e.g. Lecture 1: Introduction"
+          maxLength={50}
+          showCount
           onPressEnter={handleConfirmCreateSession}
         />
         <div style={{ marginTop: 16 }}>
