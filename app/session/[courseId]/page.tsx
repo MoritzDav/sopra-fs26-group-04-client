@@ -9,6 +9,7 @@ import { useApi } from "@/hooks/useApi";
 import { getWhiteboardWebSocketUrl, getSessionWebSocketUrl, getWebSocketDomain } from "@/utils/websocket";
 import { getApiDomain } from "@/utils/domain";
 import { jsPDF } from "jspdf";
+import { storeTeacherNotes } from "@/utils/teacherNotesStorage";
 
 // Incoming chat message shape from backend ChatMessageGetDTO
 interface ChatMessage {
@@ -1180,15 +1181,9 @@ function SessionPageInner() {
 
     if (Object.keys(zip.files).length > 0 && sessionId) {
       const zipBlob = await zip.generateAsync({ type: "blob" });
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1]);
-        reader.readAsDataURL(zipBlob);
-      });
       try {
-        sessionStorage.setItem(`teacher_notes_${sessionId}`, base64);
-        sessionStorage.setItem(`teacher_notes_${sessionId}_name`, `${slug}-TeacherNotes.zip`);
-      } catch { /* quota exceeded, skip */ }
+        await storeTeacherNotes(Number(sessionId), zipBlob, `${slug}-TeacherNotes.zip`);
+      } catch { /* non-critical — download button will fall back to raw session files */ }
     }
 
     try {
@@ -1318,7 +1313,7 @@ function SessionPageInner() {
           position: "relative",
         }}>
           <button
-            onClick={handleEndSession}
+            onClick={() => { void handleEndSession(); }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -1343,7 +1338,7 @@ function SessionPageInner() {
                   The PUT call goes through; the WS echo updates collaborationActive
                   on every client (including this one). */}
               <button
-                onClick={handleToggleCollaboration}
+                onClick={() => { void handleToggleCollaboration(); }}
                 title={collaborationActive ? "Turn multi-mode off" : "Turn multi-mode on"}
                 style={{
                   display: "flex", alignItems: "center", gap: "6px",
@@ -1406,7 +1401,7 @@ function SessionPageInner() {
                             </span>
                           </div>
                           <button
-                            onClick={() => giveBrowniePoint(s.id)}
+                            onClick={() => { void giveBrowniePoint(s.id); }}
                             style={{
                               background: "rgba(91,108,255,0.08)",
                               border: "1px solid rgba(91,108,255,0.15)",

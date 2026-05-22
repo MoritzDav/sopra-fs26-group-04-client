@@ -123,7 +123,7 @@ const Profile: React.FC = () => {
                                     setEditValues({ ...editValues, [field]: val });
                                 }}
                             />
-                            <button className="profile-icon-btn save" onClick={() => saveField(field)}>
+                            <button className="profile-icon-btn save" onClick={() => { void saveField(field); }}>
                                 <Check size={16} />
                             </button>
                             <button className="profile-icon-btn cancel" onClick={cancelEditing}>
@@ -209,7 +209,7 @@ const Profile: React.FC = () => {
                                     />
                                 </div>
                                 <div className="profile-password-actions">
-                                    <button className="profile-save-btn" onClick={handlePasswordChange}>
+                                    <button className="profile-save-btn" onClick={() => { void handlePasswordChange(); }}>
                                         Save Password
                                     </button>
                                     <button
